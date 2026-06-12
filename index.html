@@ -1,0 +1,1209 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>キャラガチャ</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Hiragino Maru Gothic Pro', 'BIZ UDGothic', sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+      min-height: 100vh;
+      color: #fff;
+      overflow-x: hidden;
+    }
+
+    /* ========== SCREENS ========== */
+    .screen { display: none; min-height: 100vh; padding: 20px; }
+    .screen.active { display: flex; flex-direction: column; align-items: center; }
+
+    /* ========== TOP SCREEN ========== */
+    #screen-top {
+      justify-content: center;
+      gap: 30px;
+    }
+    .top-title {
+      font-size: 3em;
+      font-weight: bold;
+      text-align: center;
+      text-shadow: 0 0 20px #ffd700, 0 0 40px #ffd700;
+      color: #ffd700;
+      margin-bottom: 20px;
+      animation: glow 2s ease-in-out infinite alternate;
+    }
+    .top-title .sub {
+      font-size: 0.4em;
+      display: block;
+      color: #fff;
+      text-shadow: none;
+    }
+    @keyframes glow {
+      from { text-shadow: 0 0 10px #ffd700, 0 0 20px #ffd700; }
+      to   { text-shadow: 0 0 20px #ffd700, 0 0 40px #ffd700, 0 0 60px #ffaa00; }
+    }
+
+    /* ========== BUTTONS ========== */
+    .btn {
+      padding: 16px 40px;
+      font-size: 1.3em;
+      font-weight: bold;
+      border: none;
+      border-radius: 50px;
+      cursor: pointer;
+      transition: transform 0.1s, box-shadow 0.1s;
+      min-width: 200px;
+    }
+    .btn:active { transform: scale(0.96); }
+
+    .btn-gold {
+      background: linear-gradient(135deg, #ffd700, #ffaa00);
+      color: #1a1a2e;
+      box-shadow: 0 4px 20px rgba(255,215,0,0.5);
+    }
+    .btn-gold:hover { box-shadow: 0 6px 30px rgba(255,215,0,0.8); }
+
+    .btn-blue {
+      background: linear-gradient(135deg, #4fc3f7, #0288d1);
+      color: #fff;
+      box-shadow: 0 4px 20px rgba(79,195,247,0.4);
+    }
+
+    .btn-green {
+      background: linear-gradient(135deg, #81c784, #388e3c);
+      color: #fff;
+      box-shadow: 0 4px 20px rgba(129,199,132,0.4);
+    }
+
+    .btn-red {
+      background: linear-gradient(135deg, #e57373, #c62828);
+      color: #fff;
+      box-shadow: 0 4px 20px rgba(229,115,115,0.4);
+    }
+
+    .btn-gray {
+      background: #555;
+      color: #ccc;
+    }
+
+    .btn-sm {
+      padding: 8px 20px;
+      font-size: 1em;
+      min-width: unset;
+    }
+
+    /* ========== BACK BUTTON ========== */
+    .back-btn {
+      align-self: flex-start;
+      background: rgba(255,255,255,0.15);
+      border: 1px solid rgba(255,255,255,0.3);
+      color: #fff;
+      padding: 8px 20px;
+      border-radius: 50px;
+      cursor: pointer;
+      font-size: 0.95em;
+      margin-bottom: 20px;
+    }
+    .back-btn:hover { background: rgba(255,255,255,0.25); }
+
+    /* ========== PIN SCREEN ========== */
+    #screen-pin { justify-content: center; gap: 20px; }
+    .pin-box {
+      background: rgba(255,255,255,0.1);
+      border-radius: 20px;
+      padding: 40px;
+      text-align: center;
+      width: 100%;
+      max-width: 360px;
+    }
+    .pin-box h2 { margin-bottom: 20px; font-size: 1.5em; }
+    .pin-input {
+      width: 100%;
+      padding: 14px;
+      font-size: 1.5em;
+      text-align: center;
+      letter-spacing: 0.5em;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-radius: 10px;
+      background: rgba(0,0,0,0.3);
+      color: #fff;
+      margin-bottom: 20px;
+    }
+    .pin-error { color: #ff6b6b; font-size: 0.9em; min-height: 1.2em; }
+
+    /* ========== TEACHER SCREEN ========== */
+    #screen-teacher { align-items: stretch; max-width: 700px; margin: 0 auto; width: 100%; }
+    .teacher-tabs { display: flex; gap: 10px; margin-bottom: 20px; }
+    .tab-btn {
+      flex: 1;
+      padding: 12px;
+      border: none;
+      border-radius: 10px;
+      font-size: 1em;
+      font-weight: bold;
+      cursor: pointer;
+      background: rgba(255,255,255,0.1);
+      color: #ccc;
+      transition: all 0.2s;
+    }
+    .tab-btn.active {
+      background: linear-gradient(135deg, #ffd700, #ffaa00);
+      color: #1a1a2e;
+    }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    .student-row {
+      display: flex;
+      align-items: center;
+      background: rgba(255,255,255,0.07);
+      border-radius: 12px;
+      padding: 12px 16px;
+      margin-bottom: 10px;
+      gap: 10px;
+    }
+    .student-name { flex: 1; font-size: 1.1em; }
+    .gacha-count {
+      font-size: 1.3em;
+      font-weight: bold;
+      color: #ffd700;
+      min-width: 40px;
+      text-align: center;
+    }
+    .count-btn {
+      width: 36px; height: 36px;
+      border-radius: 50%;
+      border: none;
+      font-size: 1.3em;
+      cursor: pointer;
+      font-weight: bold;
+      line-height: 1;
+    }
+    .count-btn.plus { background: #81c784; color: #fff; }
+    .count-btn.minus { background: #e57373; color: #fff; }
+    .count-btn:disabled { background: #444; color: #777; cursor: default; }
+
+    .section-title {
+      font-size: 1.2em;
+      font-weight: bold;
+      color: #ffd700;
+      margin: 20px 0 12px;
+      border-bottom: 1px solid rgba(255,215,0,0.3);
+      padding-bottom: 6px;
+    }
+
+    .add-form {
+      background: rgba(255,255,255,0.07);
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+    .add-form input, .add-form select {
+      width: 100%;
+      padding: 10px 14px;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.2);
+      background: rgba(0,0,0,0.3);
+      color: #fff;
+      font-size: 1em;
+      margin-bottom: 10px;
+    }
+    .add-form select option { background: #1a1a2e; }
+    .form-row { display: flex; gap: 10px; }
+    .form-row input, .form-row select { margin-bottom: 0; }
+
+    .char-row {
+      display: flex;
+      align-items: center;
+      background: rgba(255,255,255,0.07);
+      border-radius: 12px;
+      padding: 10px 14px;
+      margin-bottom: 8px;
+      gap: 12px;
+    }
+    .char-thumb {
+      width: 48px; height: 48px;
+      border-radius: 8px;
+      object-fit: cover;
+      background: #333;
+    }
+    .char-thumb-placeholder {
+      width: 48px; height: 48px;
+      border-radius: 8px;
+      background: #333;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.4em;
+    }
+    .char-info { flex: 1; }
+    .char-info .name { font-size: 1em; font-weight: bold; }
+    .char-info .gender { font-size: 0.8em; color: #aaa; }
+    .delete-btn {
+      background: none;
+      border: none;
+      color: #e57373;
+      font-size: 1.2em;
+      cursor: pointer;
+      padding: 4px 8px;
+    }
+
+    /* ========== BULK ADD PREVIEW ========== */
+    #bulk-preview-list { margin-top: 12px; }
+    .bulk-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: rgba(255,255,255,0.05);
+      border-radius: 10px;
+      padding: 8px 10px;
+      margin-bottom: 8px;
+    }
+    .bulk-row img {
+      width: 48px; height: 48px;
+      object-fit: cover;
+      border-radius: 8px;
+      flex-shrink: 0;
+    }
+    .bulk-row input[type="text"] {
+      flex: 1;
+      margin-bottom: 0;
+      padding: 8px 10px;
+      font-size: 0.95em;
+    }
+    .bulk-row select {
+      width: auto;
+      margin-bottom: 0;
+      padding: 8px 10px;
+    }
+    .bulk-row .filename {
+      font-size: 0.7em;
+      color: #888;
+      flex-basis: 100%;
+      margin-top: -4px;
+    }
+
+    /* ========== STUDENT SELECT SCREEN ========== */
+    #screen-student-select { gap: 20px; }
+    #screen-student-select h2 { font-size: 1.8em; color: #ffd700; }
+    .student-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 12px;
+      width: 100%;
+      max-width: 700px;
+    }
+    .student-card {
+      background: rgba(255,255,255,0.1);
+      border-radius: 16px;
+      padding: 16px 10px;
+      text-align: center;
+      cursor: pointer;
+      border: 2px solid transparent;
+      transition: all 0.2s;
+      font-size: 1.05em;
+      font-weight: bold;
+    }
+    .student-card:hover {
+      background: rgba(255,215,0,0.2);
+      border-color: #ffd700;
+      transform: translateY(-2px);
+    }
+
+    /* ========== STUDENT HOME SCREEN ========== */
+    #screen-student-home { justify-content: center; gap: 24px; }
+    .student-home-name {
+      font-size: 2em;
+      font-weight: bold;
+      color: #ffd700;
+      text-align: center;
+    }
+    .gacha-badge {
+      background: rgba(255,215,0,0.2);
+      border: 2px solid #ffd700;
+      border-radius: 20px;
+      padding: 10px 28px;
+      font-size: 1.1em;
+      text-align: center;
+    }
+    .gacha-badge span { color: #ffd700; font-size: 1.5em; font-weight: bold; }
+    .home-btns { display: flex; flex-direction: column; gap: 16px; width: 100%; max-width: 300px; }
+
+    /* ========== COLLECTION SCREEN ========== */
+    #screen-collection { gap: 20px; }
+    #screen-collection h2 { font-size: 1.8em; color: #ffd700; }
+    .collection-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+      gap: 12px;
+      width: 100%;
+      max-width: 700px;
+    }
+    .collection-card {
+      background: rgba(255,255,255,0.07);
+      border-radius: 14px;
+      padding: 10px;
+      text-align: center;
+      position: relative;
+    }
+    .collection-card img {
+      width: 100%;
+      aspect-ratio: 1;
+      object-fit: cover;
+      border-radius: 8px;
+      display: block;
+    }
+    .collection-card .char-label {
+      font-size: 0.75em;
+      margin-top: 6px;
+      color: #ccc;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .silhouette {
+      width: 100%;
+      aspect-ratio: 1;
+      background: #222;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 2em;
+    }
+    .silhouette-img {
+      width: 100%;
+      aspect-ratio: 1;
+      object-fit: cover;
+      border-radius: 8px;
+      display: block;
+      filter: brightness(0);
+      opacity: 0.85;
+    }
+    .owned-badge {
+      position: absolute;
+      top: 6px; right: 6px;
+      background: #ffd700;
+      color: #1a1a2e;
+      font-size: 0.65em;
+      font-weight: bold;
+      padding: 2px 6px;
+      border-radius: 20px;
+    }
+    .progress-bar-wrap {
+      width: 100%; max-width: 700px;
+      background: rgba(255,255,255,0.1);
+      border-radius: 10px;
+      height: 14px;
+      overflow: hidden;
+    }
+    .progress-bar {
+      height: 100%;
+      background: linear-gradient(90deg, #ffd700, #ffaa00);
+      border-radius: 10px;
+      transition: width 0.5s;
+    }
+    .progress-label { font-size: 0.9em; color: #ccc; }
+
+    /* ========== GACHA SCREEN ========== */
+    #screen-gacha { justify-content: center; gap: 24px; }
+    #gacha-video-wrap {
+      display: none;
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      background: #000;
+      z-index: 1000;
+    }
+    #gacha-video {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+    }
+    #gacha-result-wrap {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      gap: 20px;
+      animation: popIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+    @keyframes popIn {
+      from { transform: scale(0.5); opacity: 0; }
+      to   { transform: scale(1); opacity: 1; }
+    }
+    #gacha-result-img {
+      width: 220px; height: 220px;
+      object-fit: cover;
+      border-radius: 20px;
+      border: 4px solid #ffd700;
+      box-shadow: 0 0 40px rgba(255,215,0,0.6);
+    }
+    #gacha-result-name {
+      font-size: 1.8em;
+      font-weight: bold;
+      color: #ffd700;
+    }
+    #gacha-tap-prompt {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+      cursor: pointer;
+      animation: pulse 1s ease-in-out infinite alternate;
+    }
+    @keyframes pulse {
+      from { opacity: 0.7; transform: scale(0.97); }
+      to   { opacity: 1; transform: scale(1.03); }
+    }
+    #gacha-tap-prompt p { font-size: 1.3em; color: #ffd700; font-weight: bold; }
+
+    #gacha-btn-area { text-align: center; }
+    #gacha-no-count { color: #aaa; font-size: 1em; }
+
+    /* ========== CHARACTER MODAL ========== */
+    .char-modal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.85);
+      z-index: 2000;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+    .char-modal.active { display: flex; }
+    .char-modal-content {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+    .char-modal-content img {
+      max-width: 90vw;
+      max-height: 75vh;
+      object-fit: contain;
+      border-radius: 16px;
+      border: 4px solid #ffd700;
+      box-shadow: 0 0 40px rgba(255,215,0,0.6);
+    }
+    #char-modal-name {
+      font-size: 1.6em;
+      font-weight: bold;
+      color: #ffd700;
+    }
+
+    /* ========== SPARKLE OVERLAY ========== */
+    .sparkle-overlay {
+      position: fixed; inset: 0;
+      pointer-events: none;
+      overflow: hidden;
+      z-index: 999;
+    }
+    .sparkle {
+      position: absolute;
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      animation: sparkle-fall 1s ease-out forwards;
+    }
+    @keyframes sparkle-fall {
+      0%   { opacity: 1; transform: translateY(0) scale(1); }
+      100% { opacity: 0; transform: translateY(80px) scale(0.3); }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ===== TOP ===== -->
+<div id="screen-top" class="screen active">
+  <div class="top-title">
+    ✨ キャラガチャ ✨
+    <span class="sub">シールコレクション</span>
+  </div>
+  <button class="btn btn-gold" onclick="showScreen('screen-student-select')">🎮 ガチャを引く・図鑑を見る</button>
+  <button class="btn btn-gray" onclick="showScreen('screen-pin')">🔑 先生モード</button>
+</div>
+
+<!-- ===== PIN ===== -->
+<div id="screen-pin" class="screen">
+  <button class="back-btn" onclick="showScreen('screen-top')">← もどる</button>
+  <div class="pin-box">
+    <h2>🔑 先生モード</h2>
+    <input type="password" class="pin-input" id="pin-input" maxlength="8" placeholder="PIN" onkeydown="if(event.key==='Enter')checkPin()">
+    <button class="btn btn-gold" style="width:100%" onclick="checkPin()">ログイン</button>
+    <p class="pin-error" id="pin-error"></p>
+  </div>
+</div>
+
+<!-- ===== TEACHER ===== -->
+<div id="screen-teacher" class="screen">
+  <button class="back-btn" onclick="showScreen('screen-top')">← もどる</button>
+  <h2 style="color:#ffd700;font-size:1.5em;margin-bottom:16px">👩‍🏫 先生モード</h2>
+
+  <div class="teacher-tabs">
+    <button class="tab-btn active" onclick="switchTab('tab-gacha')">ガチャ回数</button>
+    <button class="tab-btn" onclick="switchTab('tab-chars')">キャラクター</button>
+    <button class="tab-btn" onclick="switchTab('tab-students')">児童管理</button>
+    <button class="tab-btn" onclick="switchTab('tab-settings')">設定</button>
+  </div>
+
+  <!-- ガチャ回数タブ -->
+  <div id="tab-gacha" class="tab-content active" style="width:100%">
+    <div class="section-title">ガチャ回数管理</div>
+    <div id="student-count-list"></div>
+  </div>
+
+  <!-- キャラクタータブ -->
+  <div id="tab-chars" class="tab-content" style="width:100%">
+    <div class="section-title">画像から一括登録</div>
+    <div class="add-form">
+      <p style="font-size:0.85em;color:#aaa;margin-bottom:10px">
+        先に画像ファイルを <code>images</code> フォルダに入れてから、ここで同じファイルを選択してください（名前・性別はあとで編集できます）。
+      </p>
+      <input type="file" id="bulk-char-files" accept="image/*" multiple onchange="handleBulkFiles(event)">
+      <div id="bulk-preview-list"></div>
+      <button class="btn btn-green btn-sm" id="bulk-add-btn" style="display:none;margin-top:10px" onclick="confirmBulkAdd()">＋ まとめて追加</button>
+    </div>
+
+    <div class="section-title">キャラクターを1体ずつ追加</div>
+    <div class="add-form">
+      <input type="text" id="new-char-name" placeholder="キャラクター名（例：田中太郎のキャラ）">
+      <div class="form-row">
+        <input type="text" id="new-char-file" placeholder="画像ファイル名（例：chara01.png）" style="flex:2">
+        <select id="new-char-gender" style="flex:1">
+          <option value="boy">男子</option>
+          <option value="girl">女子</option>
+        </select>
+      </div>
+      <button class="btn btn-green btn-sm" style="margin-top:10px" onclick="addCharacter()">＋ 追加</button>
+    </div>
+    <div class="section-title">登録済みキャラクター（<span id="char-count">0</span>体）</div>
+    <div id="char-list"></div>
+  </div>
+
+  <!-- 児童管理タブ -->
+  <div id="tab-students" class="tab-content" style="width:100%">
+    <div class="section-title">児童を追加</div>
+    <div class="add-form">
+      <div class="form-row">
+        <input type="text" id="new-student-name" placeholder="出席番号（例：1）" style="flex:1">
+        <button class="btn btn-green btn-sm" onclick="addStudent()">＋ 追加</button>
+      </div>
+    </div>
+    <div class="section-title">登録済み児童（<span id="student-count">0</span>名）</div>
+    <div id="student-manage-list"></div>
+  </div>
+
+  <!-- 設定タブ -->
+  <div id="tab-settings" class="tab-content" style="width:100%">
+    <div class="section-title">先生PINの変更</div>
+    <div class="add-form">
+      <input type="password" id="new-pin" placeholder="新しいPIN（数字4〜8桁）" style="margin-bottom:10px">
+      <input type="password" id="new-pin-confirm" placeholder="確認用（もう一度入力）">
+      <button class="btn btn-blue btn-sm" style="margin-top:10px" onclick="changePin()">PINを変更</button>
+      <p id="pin-change-msg" style="margin-top:8px;font-size:0.9em;min-height:1.2em"></p>
+    </div>
+    <div class="section-title" style="margin-top:30px;color:#e57373">危険ゾーン</div>
+    <div class="add-form">
+      <p style="font-size:0.85em;color:#aaa;margin-bottom:12px">全データ（キャラ・児童・コレクション）をリセットします。元に戻せません。</p>
+      <button class="btn btn-red btn-sm" onclick="resetAll()">🗑️ 全データをリセット</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== STUDENT SELECT ===== -->
+<div id="screen-student-select" class="screen">
+  <button class="back-btn" onclick="showScreen('screen-top')">← もどる</button>
+  <h2>じぶんの出席番号をえらんでね！</h2>
+  <div class="student-grid" id="student-grid"></div>
+</div>
+
+<!-- ===== STUDENT HOME ===== -->
+<div id="screen-student-home" class="screen">
+  <button class="back-btn" onclick="showScreen('screen-student-select')">← もどる</button>
+  <div class="student-home-name" id="home-student-name"></div>
+  <div class="gacha-badge">ガチャのこり：<span id="home-gacha-count">0</span>回</div>
+  <div class="home-btns">
+    <button class="btn btn-gold" onclick="goGacha()">🎰 ガチャをひく！</button>
+    <button class="btn btn-blue" onclick="goCollection()">📖 ずかんを見る</button>
+  </div>
+</div>
+
+<!-- ===== COLLECTION ===== -->
+<div id="screen-collection" class="screen">
+  <button class="back-btn" onclick="showScreen('screen-student-home')">← もどる</button>
+  <h2>📖 <span id="collection-student-name"></span>番のずかん</h2>
+  <div class="progress-bar-wrap">
+    <div class="progress-bar" id="collection-progress-bar"></div>
+  </div>
+  <p class="progress-label" id="collection-progress-label"></p>
+  <div class="collection-grid" id="collection-grid"></div>
+  <button class="btn btn-gray btn-sm" style="margin-top:10px" onclick="resetCollection()">🔒 図鑑をリセット（先生用）</button>
+</div>
+
+<!-- ===== GACHA ===== -->
+<div id="screen-gacha" class="screen">
+  <button class="back-btn" onclick="showScreen('screen-student-home')">← もどる</button>
+  <div style="font-size:1.3em;color:#ffd700;font-weight:bold" id="gacha-student-name"></div>
+
+  <!-- ガチャボタン -->
+  <div id="gacha-btn-area">
+    <button class="btn btn-gold" style="font-size:1.5em;padding:20px 60px" id="gacha-pull-btn" onclick="startGacha()">
+      🎰 ガチャをひく！
+    </button>
+    <p id="gacha-no-count" style="display:none;margin-top:12px">ガチャのこりが0回です。がんばってゴールドシールをもらおう！</p>
+  </div>
+
+  <!-- 動画 -->
+  <div id="gacha-video-wrap">
+    <video id="gacha-video" playsinline></video>
+  </div>
+
+  <!-- タップ促進 -->
+  <div id="gacha-tap-prompt" onclick="revealResult()">
+    <p>✨ タップしてけっかをみよう！ ✨</p>
+  </div>
+
+  <!-- 結果 -->
+  <div id="gacha-result-wrap">
+    <img id="gacha-result-img" src="" alt="">
+    <div id="gacha-result-name"></div>
+    <div id="gacha-dup-label" style="color:#aaa;font-size:0.9em"></div>
+    <button class="btn btn-blue" onclick="showScreen('screen-student-home')">もどる</button>
+  </div>
+</div>
+
+<!-- キャラクター拡大モーダル -->
+<div class="char-modal" id="char-modal" onclick="closeCharModal()">
+  <div class="char-modal-content">
+    <img id="char-modal-img" src="" alt="">
+    <div id="char-modal-name"></div>
+  </div>
+</div>
+
+<!-- スパークルオーバーレイ -->
+<div class="sparkle-overlay" id="sparkle-overlay"></div>
+
+<script>
+// =====================
+// DATA
+// =====================
+const DEFAULT_PIN = '1234';
+
+function getData() {
+  return {
+    pin:      localStorage.getItem('gacha_pin') || DEFAULT_PIN,
+    students: JSON.parse(localStorage.getItem('gacha_students') || '[]'),
+    chars:    JSON.parse(localStorage.getItem('gacha_chars') || '[]'),
+  };
+}
+
+function saveStudents(students) {
+  localStorage.setItem('gacha_students', JSON.stringify(students));
+}
+function saveChars(chars) {
+  localStorage.setItem('gacha_chars', JSON.stringify(chars));
+}
+function savePin(pin) {
+  localStorage.setItem('gacha_pin', pin);
+}
+
+let currentStudentId = null;
+
+// =====================
+// SCREEN NAV
+// =====================
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  if (id === 'screen-teacher') renderTeacher();
+  if (id === 'screen-student-select') renderStudentSelect();
+  if (id === 'screen-student-home') renderStudentHome();
+}
+
+// =====================
+// PIN
+// =====================
+function checkPin() {
+  const val = document.getElementById('pin-input').value;
+  const { pin } = getData();
+  if (val === pin) {
+    document.getElementById('pin-input').value = '';
+    document.getElementById('pin-error').textContent = '';
+    showScreen('screen-teacher');
+  } else {
+    document.getElementById('pin-error').textContent = 'PINがちがいます。';
+  }
+}
+
+function changePin() {
+  const np = document.getElementById('new-pin').value;
+  const nc = document.getElementById('new-pin-confirm').value;
+  const msg = document.getElementById('pin-change-msg');
+  if (!np || np.length < 4) { msg.style.color='#ff6b6b'; msg.textContent='4桁以上で入力してください。'; return; }
+  if (np !== nc) { msg.style.color='#ff6b6b'; msg.textContent='PINが一致しません。'; return; }
+  savePin(np);
+  msg.style.color='#81c784'; msg.textContent='PINを変更しました！';
+  document.getElementById('new-pin').value='';
+  document.getElementById('new-pin-confirm').value='';
+}
+
+// =====================
+// TEACHER
+// =====================
+function switchTab(id) {
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  event.target.classList.add('active');
+}
+
+function renderTeacher() {
+  renderCountTab();
+  renderCharTab();
+  renderStudentManageTab();
+}
+
+function renderCountTab() {
+  const { students } = getData();
+  const el = document.getElementById('student-count-list');
+  if (students.length === 0) {
+    el.innerHTML = '<p style="color:#aaa;text-align:center;padding:20px">まだ児童が登録されていません</p>';
+    return;
+  }
+  el.innerHTML = students.map((s, i) => `
+    <div class="student-row">
+      <div class="student-name">${s.name}</div>
+      <button class="count-btn minus" onclick="adjustCount(${i}, -1)" ${s.gachaCount <= 0 ? 'disabled' : ''}>－</button>
+      <div class="gacha-count">${s.gachaCount}</div>
+      <button class="count-btn plus" onclick="adjustCount(${i}, 1)">＋</button>
+    </div>
+  `).join('');
+}
+
+function adjustCount(idx, delta) {
+  const { students } = getData();
+  students[idx].gachaCount = Math.max(0, (students[idx].gachaCount || 0) + delta);
+  saveStudents(students);
+  renderCountTab();
+}
+
+let editingCharIdx = null;
+
+function startEditChar(idx) {
+  editingCharIdx = idx;
+  renderCharTab();
+  const input = document.getElementById(`edit-char-name-${idx}`);
+  if (input) { input.focus(); input.select(); }
+}
+
+function cancelEditChar() {
+  editingCharIdx = null;
+  renderCharTab();
+}
+
+function saveCharName(idx) {
+  const input = document.getElementById(`edit-char-name-${idx}`);
+  const newName = input.value.trim();
+  if (!newName) { alert('名前を入力してください。'); return; }
+  const { chars } = getData();
+  chars[idx].name = newName;
+  saveChars(chars);
+  editingCharIdx = null;
+  renderCharTab();
+}
+
+function renderCharTab() {
+  const { chars } = getData();
+  document.getElementById('char-count').textContent = chars.length;
+  const el = document.getElementById('char-list');
+  if (chars.length === 0) {
+    el.innerHTML = '<p style="color:#aaa;text-align:center;padding:20px">まだキャラクターが登録されていません</p>';
+    return;
+  }
+  el.innerHTML = chars.map((c, i) => `
+    <div class="char-row">
+      <img class="char-thumb" src="images/${c.image}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+      <div class="char-thumb-placeholder" style="display:none">🎭</div>
+      <div class="char-info">
+        ${editingCharIdx === i
+          ? `<input type="text" id="edit-char-name-${i}" value="${c.name}" style="width:100%;padding:6px 10px;border-radius:6px;border:1px solid rgba(255,255,255,0.3);background:rgba(0,0,0,0.3);color:#fff;font-size:1em" onkeydown="if(event.key==='Enter')saveCharName(${i})">`
+          : `<div class="name">${c.name}</div>`
+        }
+        <div class="gender">${c.gender === 'boy' ? '👦 男子' : '👧 女子'} ／ ${c.image}</div>
+      </div>
+      ${editingCharIdx === i
+        ? `<button class="delete-btn" style="color:#81c784" onclick="saveCharName(${i})" title="保存">✅</button>
+           <button class="delete-btn" onclick="cancelEditChar()" title="キャンセル">✖️</button>`
+        : `<button class="delete-btn" style="color:#4fc3f7" onclick="startEditChar(${i})" title="名前を編集">✏️</button>`
+      }
+      <button class="delete-btn" onclick="deleteChar(${i})" title="削除">🗑️</button>
+    </div>
+  `).join('');
+}
+
+function addCharacter() {
+  const name  = document.getElementById('new-char-name').value.trim();
+  const file  = document.getElementById('new-char-file').value.trim();
+  const gender = document.getElementById('new-char-gender').value;
+  if (!name || !file) { alert('キャラクター名と画像ファイル名を入力してください。'); return; }
+  const { chars } = getData();
+  chars.push({ id: Date.now(), name, image: file, gender });
+  saveChars(chars);
+  document.getElementById('new-char-name').value = '';
+  document.getElementById('new-char-file').value = '';
+  renderCharTab();
+}
+
+// =====================
+// BULK ADD
+// =====================
+let bulkFiles = [];
+
+function handleBulkFiles(event) {
+  bulkFiles = Array.from(event.target.files);
+  const el = document.getElementById('bulk-preview-list');
+  const btn = document.getElementById('bulk-add-btn');
+
+  if (bulkFiles.length === 0) {
+    el.innerHTML = '';
+    btn.style.display = 'none';
+    return;
+  }
+
+  el.innerHTML = bulkFiles.map((file, i) => {
+    const url = URL.createObjectURL(file);
+    const defaultName = file.name.replace(/\.[^/.]+$/, '');
+    return `
+      <div class="bulk-row">
+        <img src="${url}" alt="">
+        <input type="text" id="bulk-name-${i}" value="${defaultName}" placeholder="キャラクター名">
+        <select id="bulk-gender-${i}">
+          <option value="boy">男子</option>
+          <option value="girl">女子</option>
+        </select>
+        <div class="filename">${file.name}</div>
+      </div>
+    `;
+  }).join('');
+
+  btn.style.display = 'inline-block';
+}
+
+function confirmBulkAdd() {
+  if (bulkFiles.length === 0) return;
+  const { chars } = getData();
+
+  bulkFiles.forEach((file, i) => {
+    const name = document.getElementById(`bulk-name-${i}`).value.trim() || file.name;
+    const gender = document.getElementById(`bulk-gender-${i}`).value;
+    chars.push({ id: Date.now() + i, name, image: file.name, gender });
+  });
+
+  saveChars(chars);
+
+  bulkFiles = [];
+  document.getElementById('bulk-preview-list').innerHTML = '';
+  document.getElementById('bulk-add-btn').style.display = 'none';
+  document.getElementById('bulk-char-files').value = '';
+
+  renderCharTab();
+  alert('キャラクターを一括登録しました！');
+}
+
+function deleteChar(idx) {
+  if (!confirm('このキャラクターを削除しますか？')) return;
+  const { chars } = getData();
+  chars.splice(idx, 1);
+  saveChars(chars);
+  renderCharTab();
+}
+
+function renderStudentManageTab() {
+  const { students } = getData();
+  document.getElementById('student-count').textContent = students.length;
+  const el = document.getElementById('student-manage-list');
+  if (students.length === 0) {
+    el.innerHTML = '<p style="color:#aaa;text-align:center;padding:20px">まだ児童が登録されていません</p>';
+    return;
+  }
+  el.innerHTML = students.map((s, i) => `
+    <div class="student-row">
+      <div class="student-name">${s.name}</div>
+      <button class="delete-btn" onclick="deleteStudent(${i})">🗑️</button>
+    </div>
+  `).join('');
+}
+
+function addStudent() {
+  const name = document.getElementById('new-student-name').value.trim();
+  if (!name) { alert('出席番号を入力してください。'); return; }
+  const { students } = getData();
+  students.push({ id: Date.now(), name, gachaCount: 0, collection: [] });
+  saveStudents(students);
+  document.getElementById('new-student-name').value = '';
+  renderStudentManageTab();
+  renderCountTab();
+}
+
+function deleteStudent(idx) {
+  const { students } = getData();
+  if (!confirm(`「${students[idx].name}」を削除しますか？コレクションも消えます。`)) return;
+  students.splice(idx, 1);
+  saveStudents(students);
+  renderStudentManageTab();
+  renderCountTab();
+}
+
+function resetAll() {
+  if (!confirm('本当に全データをリセットしますか？この操作は元に戻せません。')) return;
+  if (!confirm('もう一度確認します。全データを削除してよいですか？')) return;
+  localStorage.removeItem('gacha_students');
+  localStorage.removeItem('gacha_chars');
+  renderTeacher();
+}
+
+// =====================
+// STUDENT SELECT
+// =====================
+function renderStudentSelect() {
+  const { students } = getData();
+  const el = document.getElementById('student-grid');
+  if (students.length === 0) {
+    el.innerHTML = '<p style="color:#aaa;text-align:center;padding:40px;width:100%">先生モードで児童を登録してください</p>';
+    return;
+  }
+  el.innerHTML = students.map(s => `
+    <div class="student-card" onclick="selectStudent(${s.id})">
+      ${s.name}番
+    </div>
+  `).join('');
+}
+
+function selectStudent(id) {
+  currentStudentId = id;
+  showScreen('screen-student-home');
+}
+
+// =====================
+// STUDENT HOME
+// =====================
+function renderStudentHome() {
+  if (!currentStudentId) return;
+  const { students } = getData();
+  const s = students.find(x => x.id === currentStudentId);
+  if (!s) return;
+  document.getElementById('home-student-name').textContent = s.name + '番 さん';
+  document.getElementById('home-gacha-count').textContent = s.gachaCount || 0;
+}
+
+function goCollection() {
+  renderCollection();
+  showScreen('screen-collection');
+}
+
+function goGacha() {
+  renderGachaScreen();
+  showScreen('screen-gacha');
+}
+
+// =====================
+// COLLECTION
+// =====================
+function renderCollection() {
+  if (!currentStudentId) return;
+  const { students, chars } = getData();
+  const s = students.find(x => x.id === currentStudentId);
+  if (!s) return;
+  document.getElementById('collection-student-name').textContent = s.name;
+
+  const owned = s.collection || [];
+  const total = chars.length;
+  const ownedUnique = [...new Set(owned)];
+  const ownedCount = ownedUnique.length;
+
+  // progress
+  const pct = total > 0 ? Math.round(ownedCount / total * 100) : 0;
+  document.getElementById('collection-progress-bar').style.width = pct + '%';
+  document.getElementById('collection-progress-label').textContent =
+    `${ownedCount} / ${total} 体コレクト（${pct}%）`;
+
+  const el = document.getElementById('collection-grid');
+  if (chars.length === 0) {
+    el.innerHTML = '<p style="color:#aaa;text-align:center;padding:40px;width:100%">キャラクターがまだ登録されていません</p>';
+    return;
+  }
+
+  el.innerHTML = chars.map(c => {
+    const count = owned.filter(id => id === c.id).length;
+    const hasIt = count > 0;
+    return `
+      <div class="collection-card" ${hasIt ? `onclick="openCharModal('${c.image}', '${c.name.replace(/'/g, "\\'")}')" style="cursor:pointer"` : ''}>
+        ${hasIt
+          ? `<img src="images/${c.image}" alt="${c.name}" onerror="this.src=''">`
+          : `<img class="silhouette-img" src="images/${c.image}" alt="？" onerror="this.outerHTML='<div class=&quot;silhouette&quot;>？</div>'">`
+        }
+        ${hasIt ? `<div class="owned-badge">×${count}</div>` : ''}
+        <div class="char-label">${hasIt ? c.name : '？？？'}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+function openCharModal(image, name) {
+  document.getElementById('char-modal-img').src = 'images/' + image;
+  document.getElementById('char-modal-name').textContent = name;
+  document.getElementById('char-modal').classList.add('active');
+}
+
+function closeCharModal() {
+  document.getElementById('char-modal').classList.remove('active');
+}
+
+function resetCollection() {
+  if (!currentStudentId) return;
+  const { students, pin } = getData();
+  const s = students.find(x => x.id === currentStudentId);
+  if (!s) return;
+
+  if (!s.collection || s.collection.length === 0) {
+    alert('図鑑はまだ空です。');
+    return;
+  }
+
+  const inputPin = prompt('先生用PINを入力してください。');
+  if (inputPin === null) return;
+  if (inputPin !== pin) {
+    alert('PINがちがいます。');
+    return;
+  }
+
+  if (!confirm(`${s.name}番さんの図鑑をリセットします。よろしいですか？`)) return;
+
+  s.collection = [];
+  saveStudents(students);
+  renderCollection();
+}
+
+// =====================
+// GACHA
+// =====================
+function renderGachaScreen() {
+  if (!currentStudentId) return;
+  const { students } = getData();
+  const s = students.find(x => x.id === currentStudentId);
+  if (!s) return;
+
+  document.getElementById('gacha-student-name').textContent = s.name + '番 さん';
+
+  // reset state
+  document.getElementById('gacha-btn-area').style.display = 'block';
+  document.getElementById('gacha-video-wrap').style.display = 'none';
+  document.getElementById('gacha-tap-prompt').style.display = 'none';
+  document.getElementById('gacha-result-wrap').style.display = 'none';
+  document.getElementById('gacha-video').pause();
+
+  const btn = document.getElementById('gacha-pull-btn');
+  const noCount = document.getElementById('gacha-no-count');
+
+  if ((s.gachaCount || 0) > 0) {
+    btn.style.display = 'inline-block';
+    noCount.style.display = 'none';
+  } else {
+    btn.style.display = 'none';
+    noCount.style.display = 'block';
+  }
+}
+
+let pendingCharId = null;
+
+function startGacha() {
+  if (!currentStudentId) return;
+  const { students, chars } = getData();
+  const s = students.find(x => x.id === currentStudentId);
+  if (!s || (s.gachaCount || 0) <= 0 || chars.length === 0) return;
+
+  // 抽選
+  const idx = Math.floor(Math.random() * chars.length);
+  const drawn = chars[idx];
+  pendingCharId = drawn.id;
+
+  // ガチャ回数を1減らす（結果確認前に消費）
+  s.gachaCount = Math.max(0, s.gachaCount - 1);
+  saveStudents(students);
+
+  // 動画再生
+  const videoFile = drawn.gender === 'girl' ? 'videos/girl.mp4' : 'videos/boy.mp4';
+  const video = document.getElementById('gacha-video');
+  video.src = videoFile;
+  video.currentTime = 0;
+
+  document.getElementById('gacha-btn-area').style.display = 'none';
+  document.getElementById('gacha-video-wrap').style.display = 'block';
+  document.getElementById('gacha-tap-prompt').style.display = 'none';
+  document.getElementById('gacha-result-wrap').style.display = 'none';
+
+  video.play().catch(() => {
+    // 再生できない場合はタップ画面へ
+    onVideoEnd();
+  });
+
+  video.onended = onVideoEnd;
+}
+
+function onVideoEnd() {
+  document.getElementById('gacha-video-wrap').style.display = 'none';
+  document.getElementById('gacha-tap-prompt').style.display = 'flex';
+}
+
+function revealResult() {
+  if (pendingCharId === null) return;
+  const { students, chars } = getData();
+  const s = students.find(x => x.id === currentStudentId);
+  const c = chars.find(x => x.id === pendingCharId);
+  if (!s || !c) return;
+
+  // コレクションに追加
+  if (!s.collection) s.collection = [];
+  s.collection.push(pendingCharId);
+  saveStudents(students);
+
+  // 表示
+  document.getElementById('gacha-tap-prompt').style.display = 'none';
+  document.getElementById('gacha-result-wrap').style.display = 'flex';
+  document.getElementById('gacha-result-img').src = 'images/' + c.image;
+  document.getElementById('gacha-result-name').textContent = '✨ ' + c.name + ' ✨';
+
+  const ownedCount = s.collection.filter(id => id === pendingCharId).length;
+  document.getElementById('gacha-dup-label').textContent =
+    ownedCount > 1 ? `（${ownedCount}枚目）` : '（はじめてゲット！🎉）';
+
+  pendingCharId = null;
+
+  // スパークル
+  fireSparkles();
+}
+
+// =====================
+// SPARKLES
+// =====================
+function fireSparkles() {
+  const overlay = document.getElementById('sparkle-overlay');
+  const colors = ['#ffd700','#ff6b9d','#4fc3f7','#81c784','#fff'];
+  for (let i = 0; i < 60; i++) {
+    setTimeout(() => {
+      const el = document.createElement('div');
+      el.className = 'sparkle';
+      el.style.left = Math.random() * 100 + 'vw';
+      el.style.top = Math.random() * 60 + 'vh';
+      el.style.background = colors[Math.floor(Math.random() * colors.length)];
+      el.style.width = el.style.height = (6 + Math.random() * 10) + 'px';
+      overlay.appendChild(el);
+      setTimeout(() => el.remove(), 1000);
+    }, Math.random() * 600);
+  }
+}
+</script>
+</body>
+</html>
