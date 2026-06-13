@@ -21,17 +21,15 @@
 
     /* ========== TOP SCREEN ========== */
     #screen-top {
-      justify-content: center;
+      justify-content: flex-end;
       gap: 30px;
+      background-image: url('images/背景.png');
+      background-size: cover;
+      background-position: center;
+      padding-bottom: 60px;
     }
     .top-title {
-      font-size: 3em;
-      font-weight: bold;
-      text-align: center;
-      text-shadow: 0 0 20px #ffd700, 0 0 40px #ffd700;
-      color: #ffd700;
-      margin-bottom: 20px;
-      animation: glow 2s ease-in-out infinite alternate;
+      display: none;
     }
     .top-title .sub {
       font-size: 0.4em;
@@ -465,8 +463,31 @@
     }
     #gacha-tap-prompt p { font-size: 1.3em; color: #ffd700; font-weight: bold; }
 
-    #gacha-btn-area { text-align: center; }
+    #gacha-btn-area { text-align: center; width: 100%; }
     #gacha-no-count { color: #aaa; font-size: 1em; }
+
+    #gacha-bg-wrap {
+      position: relative;
+      width: 100%;
+      max-width: 700px;
+      margin: 0 auto;
+      aspect-ratio: 1672 / 941;
+      background-image: url('images/ガチャを回す.png');
+      background-size: contain;
+      background-repeat: no-repeat;
+      background-position: center;
+    }
+    #gacha-pull-btn {
+      position: absolute;
+      left: 33%;
+      top: 39%;
+      width: 34%;
+      height: 17%;
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      padding: 0;
+    }
 
     /* ========== CHARACTER MODAL ========== */
     .char-modal {
@@ -676,9 +697,9 @@
 
   <!-- ガチャボタン -->
   <div id="gacha-btn-area">
-    <button class="btn btn-gold" style="font-size:1.5em;padding:20px 60px" id="gacha-pull-btn" onclick="startGacha()">
-      🎰 ガチャをひく！
-    </button>
+    <div id="gacha-bg-wrap">
+      <button id="gacha-pull-btn" onclick="startGacha()" aria-label="ガチャを回す"></button>
+    </div>
     <p id="gacha-no-count" style="display:none;margin-top:12px">ガチャのこりが0回です。がんばってゴールドシールをもらおう！</p>
   </div>
 
@@ -1222,14 +1243,14 @@ function renderGachaScreen() {
   document.getElementById('gacha-result-wrap').style.display = 'none';
   document.getElementById('gacha-video').pause();
 
-  const btn = document.getElementById('gacha-pull-btn');
+  const wrap = document.getElementById('gacha-bg-wrap');
   const noCount = document.getElementById('gacha-no-count');
 
   if ((s.gachaCount || 0) > 0) {
-    btn.style.display = 'inline-block';
+    wrap.style.display = 'block';
     noCount.style.display = 'none';
   } else {
-    btn.style.display = 'none';
+    wrap.style.display = 'none';
     noCount.style.display = 'block';
   }
 }
