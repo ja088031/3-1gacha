@@ -619,6 +619,18 @@
       <button class="btn btn-green btn-sm" style="margin-top:10px" onclick="document.getElementById('import-file-input').click()">⬆️ バックアップを読み込む</button>
       <p id="backup-msg" style="margin-top:8px;font-size:0.9em;min-height:1.2em"></p>
     </div>
+    <div class="section-title">テキストでバックアップ（コピー＆ペースト用）</div>
+    <div class="add-form">
+      <p style="font-size:0.85em;color:#aaa;margin-bottom:12px">
+        ファイル転送ができない端末向けに、データを文字列としてコピー＆ペーストできます。<br>
+        <b>保存元</b>：「テキストを表示」→ 内容を全選択してコピー。<br>
+        <b>読み込み先</b>：下のテキスト欄にペーストして「テキストから復元」。
+      </p>
+      <button class="btn btn-blue btn-sm" onclick="showBackupText()">📋 テキストを表示</button>
+      <textarea id="backup-textarea" placeholder="ここにバックアップ用テキストを貼り付け、または表示します" style="width:100%;min-height:120px;margin-top:10px;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.2);background:rgba(0,0,0,0.3);color:#fff;font-size:0.85em;font-family:monospace"></textarea>
+      <button class="btn btn-green btn-sm" style="margin-top:10px" onclick="importDataFromText()">📥 テキストから復元</button>
+      <p id="backup-text-msg" style="margin-top:8px;font-size:0.9em;min-height:1.2em"></p>
+    </div>
     <div class="section-title" style="margin-top:30px;color:#e57373">危険ゾーン</div>
     <div class="add-form">
       <p style="font-size:0.85em;color:#aaa;margin-bottom:12px">全データ（キャラ・児童・コレクション）をリセットします。元に戻せません。</p>
@@ -992,6 +1004,36 @@ function exportData() {
   msg.textContent = 'バックアップを保存しました。';
 }
 
+function restoreFromJson(jsonText, msg) {
+  let data;
+  try {
+    data = JSON.parse(jsonText);
+  } catch (e) {
+    msg.style.color = '#ff6b6b';
+    msg.textContent = 'データの形式が正しくありません。';
+    return false;
+  }
+
+  if (!Array.isArray(data.students) || !Array.isArray(data.chars)) {
+    msg.style.color = '#ff6b6b';
+    msg.textContent = 'バックアップの内容が正しくありません。';
+    return false;
+  }
+
+  if (!confirm('現在のデータを上書きして復元します。よろしいですか？')) {
+    return false;
+  }
+
+  saveStudents(data.students);
+  saveChars(data.chars);
+  if (data.pin) savePin(data.pin);
+
+  msg.style.color = '#81c784';
+  msg.textContent = 'バックアップを復元しました。';
+  renderTeacher();
+  return true;
+}
+
 function importData(event) {
   const file = event.target.files[0];
   const msg = document.getElementById('backup-msg');
@@ -999,38 +1041,29 @@ function importData(event) {
 
   const reader = new FileReader();
   reader.onload = () => {
-    let data;
-    try {
-      data = JSON.parse(reader.result);
-    } catch (e) {
-      msg.style.color = '#ff6b6b';
-      msg.textContent = 'ファイルの形式が正しくありません。';
-      event.target.value = '';
-      return;
-    }
-
-    if (!Array.isArray(data.students) || !Array.isArray(data.chars)) {
-      msg.style.color = '#ff6b6b';
-      msg.textContent = 'バックアップファイルの内容が正しくありません。';
-      event.target.value = '';
-      return;
-    }
-
-    if (!confirm('現在のデータを上書きして復元します。よろしいですか？')) {
-      event.target.value = '';
-      return;
-    }
-
-    saveStudents(data.students);
-    saveChars(data.chars);
-    if (data.pin) savePin(data.pin);
-
-    msg.style.color = '#81c784';
-    msg.textContent = 'バックアップを復元しました。';
+    restoreFromJson(reader.result, msg);
     event.target.value = '';
-    renderTeacher();
   };
   reader.readAsText(file);
+}
+
+function showBackupText() {
+  const data = getData();
+  document.getElementById('backup-textarea').value = JSON.stringify(data);
+  const msg = document.getElementById('backup-text-msg');
+  msg.style.color = '#81c784';
+  msg.textContent = '下のテキストを全選択してコピーしてください。';
+}
+
+function importDataFromText() {
+  const text = document.getElementById('backup-textarea').value.trim();
+  const msg = document.getElementById('backup-text-msg');
+  if (!text) {
+    msg.style.color = '#ff6b6b';
+    msg.textContent = 'テキストを貼り付けてください。';
+    return;
+  }
+  restoreFromJson(text, msg);
 }
 
 function resetAll() {
