@@ -32,6 +32,16 @@
     .top-title {
       display: none;
     }
+    .top-action-panel {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      background: rgba(10,10,30,0.55);
+      backdrop-filter: blur(4px);
+      border-radius: 24px;
+      padding: 24px 20px;
+    }
     .top-title .sub {
       font-size: 0.4em;
       display: block;
@@ -95,7 +105,8 @@
     /* ========== BACK BUTTON ========== */
     .back-btn {
       align-self: flex-start;
-      background: rgba(255,255,255,0.15);
+      background: rgba(10,10,30,0.55);
+      backdrop-filter: blur(4px);
       border: 1px solid rgba(255,255,255,0.3);
       color: #fff;
       padding: 8px 20px;
@@ -104,7 +115,7 @@
       font-size: 0.95em;
       margin-bottom: 20px;
     }
-    .back-btn:hover { background: rgba(255,255,255,0.25); }
+    .back-btn:hover { background: rgba(10,10,30,0.75); }
 
     /* ========== PIN SCREEN ========== */
     #screen-pin { justify-content: center; gap: 20px; }
@@ -291,8 +302,7 @@
     /* ========== SHARED PAGE BACKGROUND ========== */
     #screen-student-select,
     #screen-student-home,
-    #screen-collection,
-    #screen-gacha {
+    #screen-collection {
       background-image: url('images/背景.png');
       background-size: contain;
       background-repeat: no-repeat;
@@ -301,7 +311,15 @@
 
     /* ========== STUDENT SELECT SCREEN ========== */
     #screen-student-select { gap: 20px; }
-    #screen-student-select h2 { font-size: 1.8em; color: #ffd700; }
+    #screen-student-select h2 {
+      font-size: 1.8em;
+      color: #ffd700;
+      background: rgba(10,10,30,0.55);
+      backdrop-filter: blur(4px);
+      border-radius: 14px;
+      padding: 10px 24px;
+      text-shadow: 0 0 8px rgba(0,0,0,0.8);
+    }
     .student-grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
@@ -310,7 +328,8 @@
       max-width: 700px;
     }
     .student-card {
-      background: rgba(255,255,255,0.1);
+      background: rgba(10,10,30,0.55);
+      backdrop-filter: blur(4px);
       border-radius: 16px;
       padding: 16px 10px;
       text-align: center;
@@ -321,7 +340,7 @@
       font-weight: bold;
     }
     .student-card:hover {
-      background: rgba(255,215,0,0.2);
+      background: rgba(255,215,0,0.3);
       border-color: #ffd700;
       transform: translateY(-2px);
     }
@@ -333,9 +352,15 @@
       font-weight: bold;
       color: #ffd700;
       text-align: center;
+      background: rgba(10,10,30,0.55);
+      backdrop-filter: blur(4px);
+      border-radius: 14px;
+      padding: 10px 24px;
+      text-shadow: 0 0 8px rgba(0,0,0,0.8);
     }
     .gacha-badge {
-      background: rgba(255,215,0,0.2);
+      background: rgba(10,10,30,0.6);
+      backdrop-filter: blur(4px);
       border: 2px solid #ffd700;
       border-radius: 20px;
       padding: 10px 28px;
@@ -347,7 +372,15 @@
 
     /* ========== COLLECTION SCREEN ========== */
     #screen-collection { gap: 20px; }
-    #screen-collection h2 { font-size: 1.8em; color: #ffd700; }
+    #screen-collection h2 {
+      font-size: 1.8em;
+      color: #ffd700;
+      background: rgba(10,10,30,0.55);
+      backdrop-filter: blur(4px);
+      border-radius: 14px;
+      padding: 10px 24px;
+      text-shadow: 0 0 8px rgba(0,0,0,0.8);
+    }
     .collection-grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
@@ -356,7 +389,8 @@
       max-width: 700px;
     }
     .collection-card {
-      background: rgba(255,255,255,0.07);
+      background: rgba(10,10,30,0.55);
+      backdrop-filter: blur(4px);
       border-radius: 14px;
       padding: 10px;
       text-align: center;
@@ -408,7 +442,7 @@
     }
     .progress-bar-wrap {
       width: 100%; max-width: 700px;
-      background: rgba(255,255,255,0.1);
+      background: rgba(10,10,30,0.55);
       border-radius: 10px;
       height: 14px;
       overflow: hidden;
@@ -419,7 +453,14 @@
       border-radius: 10px;
       transition: width 0.5s;
     }
-    .progress-label { font-size: 0.9em; color: #ccc; }
+    .progress-label {
+      font-size: 0.9em;
+      color: #fff;
+      background: rgba(10,10,30,0.55);
+      backdrop-filter: blur(4px);
+      border-radius: 10px;
+      padding: 4px 14px;
+    }
 
     /* ========== GACHA SCREEN ========== */
     #screen-gacha { justify-content: center; gap: 24px; }
@@ -561,8 +602,10 @@
     ✨ キャラガチャ ✨
     <span class="sub">シールコレクション</span>
   </div>
-  <button class="btn btn-gold" onclick="showScreen('screen-student-select')">🎮 ガチャを引く・図鑑を見る</button>
-  <button class="btn btn-gray" onclick="showScreen('screen-pin')">🔑 先生モード</button>
+  <div class="top-action-panel">
+    <button class="btn btn-gold" onclick="showScreen('screen-student-select')">🎮 ガチャを引く・図鑑を見る</button>
+    <button class="btn btn-gray" onclick="showScreen('screen-pin')">🔑 先生モード</button>
+  </div>
 </div>
 
 <!-- ===== PIN ===== -->
