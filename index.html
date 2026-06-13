@@ -611,6 +611,14 @@
       <button class="btn btn-blue btn-sm" style="margin-top:10px" onclick="changePin()">PINを変更</button>
       <p id="pin-change-msg" style="margin-top:8px;font-size:0.9em;min-height:1.2em"></p>
     </div>
+    <div class="section-title">データのバックアップ</div>
+    <div class="add-form">
+      <p style="font-size:0.85em;color:#aaa;margin-bottom:12px">児童・キャラクター・コレクションなどのデータをファイルに保存したり、別の端末から読み込んだりできます。</p>
+      <button class="btn btn-blue btn-sm" onclick="exportData()">⬇️ バックアップを保存</button>
+      <input type="file" id="import-file-input" accept="application/json" style="display:none" onchange="importData(event)">
+      <button class="btn btn-green btn-sm" style="margin-top:10px" onclick="document.getElementById('import-file-input').click()">⬆️ バックアップを読み込む</button>
+      <p id="backup-msg" style="margin-top:8px;font-size:0.9em;min-height:1.2em"></p>
+    </div>
     <div class="section-title" style="margin-top:30px;color:#e57373">危険ゾーン</div>
     <div class="add-form">
       <p style="font-size:0.85em;color:#aaa;margin-bottom:12px">全データ（キャラ・児童・コレクション）をリセットします。元に戻せません。</p>
@@ -963,6 +971,66 @@ function deleteStudent(idx) {
   saveStudents(students);
   renderStudentManageTab();
   renderCountTab();
+}
+
+// =====================
+// BACKUP / RESTORE
+// =====================
+function exportData() {
+  const data = getData();
+  const json = JSON.stringify(data, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const today = new Date().toISOString().slice(0, 10);
+  a.href = url;
+  a.download = `gacha_backup_${today}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  const msg = document.getElementById('backup-msg');
+  msg.style.color = '#81c784';
+  msg.textContent = 'バックアップを保存しました。';
+}
+
+function importData(event) {
+  const file = event.target.files[0];
+  const msg = document.getElementById('backup-msg');
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    let data;
+    try {
+      data = JSON.parse(reader.result);
+    } catch (e) {
+      msg.style.color = '#ff6b6b';
+      msg.textContent = 'ファイルの形式が正しくありません。';
+      event.target.value = '';
+      return;
+    }
+
+    if (!Array.isArray(data.students) || !Array.isArray(data.chars)) {
+      msg.style.color = '#ff6b6b';
+      msg.textContent = 'バックアップファイルの内容が正しくありません。';
+      event.target.value = '';
+      return;
+    }
+
+    if (!confirm('現在のデータを上書きして復元します。よろしいですか？')) {
+      event.target.value = '';
+      return;
+    }
+
+    saveStudents(data.students);
+    saveChars(data.chars);
+    if (data.pin) savePin(data.pin);
+
+    msg.style.color = '#81c784';
+    msg.textContent = 'バックアップを復元しました。';
+    event.target.value = '';
+    renderTeacher();
+  };
+  reader.readAsText(file);
 }
 
 function resetAll() {
