@@ -481,26 +481,87 @@
     }
     #gacha-result-wrap {
       display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 1000;
       flex-direction: column;
       align-items: center;
+      justify-content: center;
       gap: 20px;
+      background: radial-gradient(circle, rgba(255,180,0,0.35) 0%, rgba(10,10,30,0.94) 70%);
+      overflow: hidden;
       animation: popIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+    #gacha-result-wrap::before {
+      content: '';
+      position: absolute;
+      inset: -60%;
+      background: repeating-conic-gradient(from 0deg, rgba(255,215,0,0.18) 0deg 10deg, transparent 10deg 20deg);
+      animation: rotateRays 10s linear infinite;
+      z-index: 0;
+    }
+    @keyframes rotateRays {
+      from { transform: rotate(0deg); }
+      to   { transform: rotate(360deg); }
     }
     @keyframes popIn {
       from { transform: scale(0.5); opacity: 0; }
       to   { transform: scale(1); opacity: 1; }
     }
+    #gacha-get-label {
+      position: relative;
+      z-index: 1;
+      font-size: 2em;
+      font-weight: bold;
+      color: #fff;
+      text-shadow: 0 0 10px #ffd700, 0 0 20px #ffaa00;
+      animation: pulse 0.8s ease-in-out infinite alternate;
+    }
     #gacha-result-img {
-      width: 220px; height: 220px;
+      position: relative;
+      z-index: 1;
+      width: min(70vw, 380px);
+      height: min(70vw, 380px);
       object-fit: cover;
-      border-radius: 20px;
-      border: 4px solid #ffd700;
-      box-shadow: 0 0 40px rgba(255,215,0,0.6);
+      border-radius: 24px;
+      border: 6px solid #ffd700;
+      animation: resultGlow 1.2s ease-in-out infinite alternate;
+    }
+    @keyframes resultGlow {
+      from { box-shadow: 0 0 40px rgba(255,215,0,0.7), 0 0 80px rgba(255,170,0,0.4); }
+      to   { box-shadow: 0 0 70px rgba(255,215,0,1), 0 0 140px rgba(255,170,0,0.7); }
     }
     #gacha-result-name {
-      font-size: 1.8em;
+      position: relative;
+      z-index: 1;
+      font-size: 2.4em;
       font-weight: bold;
       color: #ffd700;
+      text-align: center;
+      text-shadow: 0 0 10px #ffd700, 0 0 20px #ffd700, 0 0 40px #ffaa00;
+    }
+    #gacha-dup-label {
+      position: relative;
+      z-index: 1;
+    }
+    #gacha-result-wrap .btn {
+      position: relative;
+      z-index: 1;
+    }
+    #gacha-flash {
+      position: fixed;
+      inset: 0;
+      background: #fff;
+      z-index: 1001;
+      opacity: 0;
+      pointer-events: none;
+    }
+    #gacha-flash.flash-active {
+      animation: flashFade 0.5s ease-out;
+    }
+    @keyframes flashFade {
+      from { opacity: 1; }
+      to   { opacity: 0; }
     }
     #gacha-tap-prompt {
       display: none;
@@ -580,7 +641,7 @@
       position: fixed; inset: 0;
       pointer-events: none;
       overflow: hidden;
-      z-index: 999;
+      z-index: 1002;
     }
     .sparkle {
       position: absolute;
@@ -770,12 +831,16 @@
 
   <!-- 結果 -->
   <div id="gacha-result-wrap">
+    <div id="gacha-get-label">🎉 GET!! 🎉</div>
     <img id="gacha-result-img" src="" alt="">
     <div id="gacha-result-name"></div>
     <div id="gacha-dup-label" style="color:#aaa;font-size:0.9em"></div>
     <button class="btn btn-blue" onclick="showScreen('screen-student-home')">もどる</button>
   </div>
 </div>
+
+<!-- ガチャ結果フラッシュ -->
+<div id="gacha-flash"></div>
 
 <!-- キャラクター拡大モーダル -->
 <div class="char-modal" id="char-modal" onclick="closeCharModal()">
@@ -1363,6 +1428,12 @@ function revealResult() {
   s.collection.push(pendingCharId);
   saveStudents(students);
 
+  // フラッシュ
+  const flash = document.getElementById('gacha-flash');
+  flash.classList.remove('flash-active');
+  void flash.offsetWidth;
+  flash.classList.add('flash-active');
+
   // 表示
   document.getElementById('gacha-tap-prompt').style.display = 'none';
   document.getElementById('gacha-result-wrap').style.display = 'flex';
@@ -1385,17 +1456,17 @@ function revealResult() {
 function fireSparkles() {
   const overlay = document.getElementById('sparkle-overlay');
   const colors = ['#ffd700','#ff6b9d','#4fc3f7','#81c784','#fff'];
-  for (let i = 0; i < 60; i++) {
+  for (let i = 0; i < 120; i++) {
     setTimeout(() => {
       const el = document.createElement('div');
       el.className = 'sparkle';
       el.style.left = Math.random() * 100 + 'vw';
       el.style.top = Math.random() * 60 + 'vh';
       el.style.background = colors[Math.floor(Math.random() * colors.length)];
-      el.style.width = el.style.height = (6 + Math.random() * 10) + 'px';
+      el.style.width = el.style.height = (6 + Math.random() * 14) + 'px';
       overlay.appendChild(el);
-      setTimeout(() => el.remove(), 1000);
-    }, Math.random() * 600);
+      setTimeout(() => el.remove(), 1200);
+    }, Math.random() * 1200);
   }
 }
 </script>
