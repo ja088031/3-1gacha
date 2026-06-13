@@ -251,11 +251,12 @@
     #bulk-preview-list { margin-top: 12px; }
     .bulk-row {
       display: flex;
-      align-items: center;
+      align-items: flex-start;
+      flex-wrap: wrap;
       gap: 10px;
       background: rgba(255,255,255,0.05);
       border-radius: 10px;
-      padding: 8px 10px;
+      padding: 10px;
       margin-bottom: 8px;
     }
     .bulk-row img {
@@ -264,11 +265,19 @@
       border-radius: 8px;
       flex-shrink: 0;
     }
+    .bulk-row .bulk-fields {
+      flex: 1 1 200px;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
     .bulk-row input[type="text"] {
-      flex: 1;
+      width: 100%;
       margin-bottom: 0;
       padding: 8px 10px;
       font-size: 0.95em;
+      box-sizing: border-box;
     }
     .bulk-row select {
       width: auto;
@@ -278,8 +287,6 @@
     .bulk-row .filename {
       font-size: 0.7em;
       color: #888;
-      flex-basis: 100%;
-      margin-top: -4px;
     }
 
     /* ========== STUDENT SELECT SCREEN ========== */
@@ -878,12 +885,14 @@ function handleBulkFiles(event) {
     return `
       <div class="bulk-row">
         <img src="${url}" alt="">
-        <input type="text" id="bulk-name-${i}" value="${defaultName}" placeholder="キャラクター名">
-        <select id="bulk-gender-${i}">
-          <option value="boy">男子</option>
-          <option value="girl">女子</option>
-        </select>
-        <div class="filename">${file.name}</div>
+        <div class="bulk-fields">
+          <input type="text" id="bulk-name-${i}" value="${defaultName}" placeholder="キャラクター名">
+          <select id="bulk-gender-${i}">
+            <option value="boy">男子</option>
+            <option value="girl">女子</option>
+          </select>
+          <div class="filename">${file.name}</div>
+        </div>
       </div>
     `;
   }).join('');
