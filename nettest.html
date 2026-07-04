@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>音読アプリ 通信テスト</title>
+<style>
+  body{font-family:sans-serif;margin:0;padding:16px;background:#f4f6fb;color:#222;}
+  h1{font-size:20px;}
+  p.note{font-size:13px;color:#555;line-height:1.6;}
+  button{font-size:16px;padding:10px 18px;border:none;border-radius:8px;background:#3b6ef5;color:#fff;cursor:pointer;}
+  button:disabled{background:#9bb0e8;}
+  table{width:100%;border-collapse:collapse;margin-top:14px;background:#fff;border-radius:8px;overflow:hidden;}
+  th,td{padding:9px 8px;text-align:left;font-size:14px;border-bottom:1px solid #eee;}
+  th{background:#eef2fb;}
+  .status{font-weight:bold;white-space:nowrap;}
+  .ok{color:#0a8a3a;}
+  .ng{color:#c0392b;}
+  .pending{color:#888;}
+  .detail{font-size:12px;color:#666;word-break:break-all;}
+  #summary{margin-top:14px;width:100%;height:130px;font-family:monospace;font-size:12px;}
+</style>
+</head>
+<body>
+<h1>🎤 音読アプリ 通信テスト</h1>
+<p class="note">
+「先生ページで全員のハイスコアを見る」を実現できるか＝この端末が<b>クラウド保存先に通信できるか</b>を調べます。<br>
+下のボタンを押すと、いくつかの候補サービスへの到達可否を判定します。<b>緑（OK）</b>＝通信できた／<b>赤（NG）</b>＝ブロックされている、の意味です。<br>
+※このテストではデータは何も保存しません。到達できるかを見るだけです。
+</p>
+<button id="run">テスト開始</button>
+<table id="tbl">
+<thead><tr><th>候補サービス</th><th>結果</th><th class="detail">詳細</th></tr></thead>
+<tbody></tbody>
+</table>
+<p class="note">↓この結果をコピーして先生（開発者）に伝えてください。</p>
+<textarea id="summary" readonly placeholder="テスト後にここへ結果が出ます"></textarea>
+
+<script>
+// 候補: [表示名, URL, 種別]
+//  種別 'read' … Google API等。CORS応答を読めるので「本物のAPIか」まで確認できる（最も確実）
+//  種別 'ping' … 到達可否だけを確認（no-corsで不透明応答＝到達とみなす。※フィルタのブロックページでも到達扱いになりうる点に注意）
+const TARGETS = [
+  ["【基準】Google(gstatic)", "https://www.gstatic.com/generate_204", "ping"],
+  ["【基準】GitHub", "https://raw.githubusercontent.com/ja088031/3-1gacha/main/index.html", "ping"],
+  ["★Firebase Firestore", "https://firestore.googleapis.com/v1/projects/nettest-xyz/databases/(default)/documents", "read"],
+  ["★Firebase Auth(identitytoolkit)", "https://identitytoolkit.googleapis.com/v1/accounts:lookup", "read"],
+  ["Google Apps Script", "https://script.google.com/", "ping"],
+  ["Firebase RTDB(domain)", "https://firebaseio.com/", "ping"],
+  ["Supabase", "https://supabase.co/", "ping"],
+  ["Cloudflare Workers", "https://workers.dev/", "ping"],
+  ["jsonbin.io", "https://api.jsonbin.io/v3/b", "ping"],
+];
+
+const tbody = document.querySelector("#tbl tbody");
+const rows = TARGETS.map(([name])=>{
+  const tr=document.createElement("tr");
+  tr.innerHTML=`<td>${name}</td><td class="status pending">…</td><td class="detail"></td>`;
+  tbody.appendChild(tr);
+  return tr;
+});
+
+function timeoutFetch(url, opts, ms){
+  const c=new AbortController();
+  const t=setTimeout(()=>c.abort(), ms);
+  return fetch(url, {...opts, signal:c.signal, cache:"no-store"}).finally(()=>clearTimeout(t));
+}
+
+async function probeRead(url){
+  // CORS応答を読む。到達すればstatus(403等)が返る＝本物のAPI。ネットワーク遮断ならthrow。
+  const r = await timeoutFetch(url, {mode:"cors", method:"GET"}, 8000);
+  return {ok:true, detail:`HTTP ${r.status}（本物のAPI応答＝到達）`};
+}
+async function probePing(url){
+  await timeoutFetch(url, {mode:"no-cors", method:"GET"}, 8000);
+  return {ok:true, detail:"到達（応答あり）"};
+}
+
+async function runOne(i){
+  const [name,url,kind]=TARGETS[i];
+  const cell=rows[i].querySelector(".status");
+  const det=rows[i].querySelector(".detail");
+  try{
+    let res;
+    if(kind==="read"){
+      try{ res=await probeRead(url); }
+      catch(e){ res=await probePing(url); res.detail="到達（不透明応答）"; }
+    }else{
+      res=await probePing(url);
+    }
+    cell.textContent="OK"; cell.className="status ok"; det.textContent=res.detail;
+    return `OK  ${name}  (${det.textContent})`;
+  }catch(e){
+    const why = e.name==="AbortError" ? "タイムアウト＝ブロックの可能性大" : "接続失敗＝ブロック";
+    cell.textContent="NG"; cell.className="status ng"; det.textContent=why;
+    return `NG  ${name}  (${why})`;
+  }
+}
+
+document.querySelector("#run").addEventListener("click", async (ev)=>{
+  ev.target.disabled=true; ev.target.textContent="テスト中…";
+  const lines=["=== 音読アプリ 通信テスト結果 ===", new Date().toLocaleString()];
+  for(let i=0;i<TARGETS.length;i++){ lines.push(await runOne(i)); }
+  document.querySelector("#summary").value=lines.join("\n");
+  ev.target.disabled=false; ev.target.textContent="もう一度テスト";
+});
+</script>
+</body>
+</html>
