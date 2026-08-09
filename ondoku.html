@@ -188,9 +188,14 @@
   <div id="res-best-badge" style="display:none" class="best-badge">🎉 じこベスト こうしん！</div>
   <div class="meters" id="res-meters"></div>
   <div class="advice" id="res-advice"></div>
+  <div class="panel" id="res-raw" style="display:none">
+    <h3>測定値（先生用）</h3>
+    <table id="res-raw-table"></table>
+    <div id="res-suggest" style="margin-top:14px"></div>
+  </div>
   <p class="note center" id="res-save"></p>
-  <button class="btn btn-gold" onclick="startRecord()">もう1回 よむ</button>
-  <button class="btn btn-blue btn-sm" onclick="openHome()">ホームに もどる</button>
+  <button class="btn btn-gold" onclick="againRead()">もう1回 よむ</button>
+  <button class="btn btn-blue btn-sm" onclick="backHome()">もどる</button>
 </div>
 
 <!-- ========== TEACHER PIN ========== -->
@@ -219,6 +224,14 @@
       <button class="btn btn-green btn-sm" onclick="addStudent()">追加</button>
     </div>
     <p class="note">削除は上の表の「削除」ボタンから。削除するとその子のスコアも消えます。</p>
+  </div>
+  <div class="panel">
+    <h3>マイクの調整テスト</h3>
+    <p class="note" style="margin-bottom:12px">
+      先生がふつうの速さで20〜30秒ほど音読してみてください。測定値と、<b>それに合わせた「はやさ」の推奨設定</b>が表示されます。
+      スコアは誰にも記録されません。
+    </p>
+    <button class="btn btn-green btn-sm" onclick="startCalib()">🎤 読んで 測定してみる</button>
   </div>
   <div class="panel">
     <h3>設定</h3>
@@ -455,9 +468,11 @@ const REC_MIN_SEC = 8;     // これより短いと採点しない
 const CALIB_SEC = 1.2;     // 環境音（ノイズフロア）を測る時間
 
 let audio = null;   // { ctx, stream, analyser, raf }
-let rec = null;     // { frames, t0, noiseFloor, timerId }
+let rec = null;     // { frames, t0, noiseFloor, phase, interrupted }
+let calibMode = false;  // 先生の調整テスト中は記録せず測定値を表示する
 
-async function startRecord(){
+async function startRecord(isCalib){
+  calibMode = !!isCalib;
   show("screen-record");
   document.getElementById("rec-stop").disabled = true;
   document.getElementById("rec-timer").textContent = "0:00";
@@ -486,7 +501,7 @@ async function startRecord(){
     return;
   }
 
-  rec = { frames: [], t0: 0, noise: [], phase: "calib" };
+  rec = { frames: [], t0: 0, noise: [], phase: "calib", interrupted: false };
   loop();
   setTimeout(() => {
     // キャリブレーション終了 → 本番へ
@@ -499,7 +514,15 @@ async function startRecord(){
     document.getElementById("rec-stop").disabled = false;
   }, CALIB_SEC * 1000);
 }
-window.startRecord = startRecord;
+window.startRecord = () => startRecord(false);
+window.startCalib = () => startRecord(true);
+window.againRead = () => startRecord(calibMode);
+window.backHome = () => { if (calibMode){ calibMode = false; show("screen-teacher"); } else openHome(); };
+
+// 録音中に画面が切りかわる／スリープすると測定が途切れるため、記録して採点を止める
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden && rec && rec.phase === "rec") rec.interrupted = true;
+});
 
 function loop(){
   if (!audio || !rec) return;
@@ -530,18 +553,17 @@ function calcRms(buf){
 // 自己相関によるピッチ検出（80〜500Hz）
 function detectPitch(buf, sr){
   const minLag = Math.floor(sr / 500), maxLag = Math.floor(sr / 80);
-  let best = -1, bestVal = 0, prev = 0;
+  let best = -1, bestVal = 0;
   for (let lag = minLag; lag <= maxLag && lag < buf.length; lag++){
     let sum = 0;
     for (let i = 0; i + lag < buf.length; i += 2) sum += buf[i] * buf[i + lag];
     if (sum > bestVal){ bestVal = sum; best = lag; }
-    prev = sum;
   }
   if (best < 0 || bestVal <= 0) return 0;
   return sr / best;
 }
 
-function cancelRecord(){ teardown(); openHome(); }
+function cancelRecord(){ teardown(); window.backHome(); }
 window.cancelRecord = cancelRecord;
 
 function teardown(){
@@ -555,28 +577,50 @@ function teardown(){
 }
 
 async function stopRecord(){
-  if (!rec || rec.phase !== "rec"){ teardown(); openHome(); return; }
-  const frames = rec.frames, noiseFloor = rec.noiseFloor;
+  if (!rec || rec.phase !== "rec"){ teardown(); window.backHome(); return; }
+  const frames = rec.frames, noiseFloor = rec.noiseFloor, interrupted = rec.interrupted;
   const dur = frames.length ? frames[frames.length - 1].t : 0;
   teardown();
 
   if (dur < REC_MIN_SEC){
-    show("screen-result");
-    document.getElementById("res-title").textContent = "みじかすぎます";
-    document.getElementById("res-score").innerHTML = '—';
-    document.getElementById("res-best-badge").style.display = "none";
-    document.getElementById("res-meters").innerHTML = "";
-    document.getElementById("res-advice").innerHTML =
-      `<div>${REC_MIN_SEC}びょう いじょう よんでから「読みおわった！」を おしてね</div>`;
-    document.getElementById("res-save").textContent = "";
+    notice("みじかすぎます", [`${REC_MIN_SEC}びょう いじょう よんでから「読みおわった！」を おしてね`]);
+    return;
+  }
+  // 画面の切りかえ・スリープで測定が途切れていたら採点しない（でたらめな点を出さないため）
+  const maxGap = frames.reduce((mx, f, i) => i ? Math.max(mx, f.t - frames[i-1].t) : mx, 0);
+  if (interrupted || maxGap > 0.6){
+    notice("とちゅうで とまりました", [
+      "ほかの がめんに かわったので さいてん できませんでした",
+      "音読ちゅうは この がめんの まま にしてね"
+    ]);
     return;
   }
   const result = score(frames, noiseFloor, dur, meta.settings);
+  // 声がほとんど拾えていないときは点を出さない（0点表示で意欲を折らないため）
+  if (result.raw.voicedRatio < 0.08){
+    notice("こえが きこえませんでした", [
+      "マイクに もう少し ちかづいて、大きめの こえで よんで みてね"
+    ]);
+    return;
+  }
   lastResult = result;
-  await saveResult(result);
+  if (calibMode) result.saved = null;      // 調整テストは記録しない
+  else await saveResult(result);
   renderResult(result);
 }
 window.stopRecord = stopRecord;
+
+// 採点できなかったときの案内（結果画面を使いまわす）
+function notice(title, lines){
+  show("screen-result");
+  document.getElementById("res-title").textContent = title;
+  document.getElementById("res-score").innerHTML = "—";
+  document.getElementById("res-best-badge").style.display = "none";
+  document.getElementById("res-meters").innerHTML = "";
+  document.getElementById("res-raw").style.display = "none";
+  document.getElementById("res-advice").innerHTML = lines.map(l => `<div>${l}</div>`).join("");
+  document.getElementById("res-save").textContent = "";
+}
 
 /* ========== 採点 ==========
    4項目すべて「ちょうど良い範囲」で評価する（多いほど良い、ではない）。
@@ -673,9 +717,57 @@ function renderResult(r){
   }
   document.getElementById("res-advice").innerHTML =
     advice(r).map(a => `<div>${a}</div>`).join("");
-  document.getElementById("res-save").textContent = r.saved
-    ? "きろく しました" : "※ きろくが ほぞん できませんでした";
+
+  if (calibMode){
+    document.getElementById("res-title").textContent = "測定けっか（調整テスト）";
+    document.getElementById("res-save").textContent = "※ 調整テストなので 記録していません";
+    renderRaw(r);
+  } else {
+    document.getElementById("res-raw").style.display = "none";
+    document.getElementById("res-save").textContent = r.saved
+      ? "きろく しました" : "※ きろくが ほぞん できませんでした";
+  }
 }
+
+/* 先生の調整テスト用: 測定値と、それに基づく「はやさ」の推奨適正帯を表示 */
+function renderRaw(r){
+  const w = r.raw;
+  document.getElementById("res-raw").style.display = "";
+  document.getElementById("res-raw-table").innerHTML = `
+    <tr><th>こえの大きさ（SNR）</th><td>${w.snrDb.toFixed(1)} dB</td><td class="note">18以上=満点 / 12未満=低</td></tr>
+    <tr><th>はやさ</th><td>${w.pace.toFixed(2)} かたまり/秒</td><td class="note">いまの適正帯 ${meta.settings.paceLo}〜${meta.settings.paceHi}</td></tr>
+    <tr><th>抑揚のはば</th><td>${w.semi.toFixed(2)} 半音</td><td class="note">2.0〜7.0=満点</td></tr>
+    <tr><th>長い間の割合</th><td>${(w.pauseRatio*100).toFixed(0)} %（${w.longPauses}回）</td><td class="note">12%以下=満点</td></tr>
+    <tr><th>読んだ時間</th><td>${w.dur.toFixed(1)} 秒</td><td class="note">声が出ていた割合 ${(w.voicedRatio*100).toFixed(0)}%</td></tr>`;
+
+  // 先生の「ふつうの速さ」を中心に、上下へ余裕をとった帯を推奨する
+  const lo = Math.max(0.5, Math.round(w.pace * 0.70 * 10) / 10);
+  const hi = Math.round(w.pace * 1.35 * 10) / 10;
+  const fits = w.pace >= meta.settings.paceLo && w.pace <= meta.settings.paceHi;
+  document.getElementById("res-suggest").innerHTML = `
+    <p class="note" style="margin-bottom:10px">
+      ${fits
+        ? "今の設定でも この速さは満点になります。ズレを感じなければ変更は不要です。"
+        : "今の設定では この速さが満点になりません。下のボタンで合わせられます。"}
+    </p>
+    <button class="btn btn-gold btn-sm" onclick="applySuggest(${lo},${hi})">
+      「はやさ」の適正帯を ${lo}〜${hi} にする
+    </button>`;
+}
+
+async function applySuggest(lo, hi){
+  meta.settings = Object.assign({}, meta.settings, { paceLo: lo, paceHi: hi });
+  try {
+    await updateDoc(META(), { settings: meta.settings });
+    document.getElementById("res-suggest").innerHTML =
+      `<p class="msg ok">適正帯を ${lo}〜${hi} に保存しました</p>`;
+    document.getElementById("t-set-lo").value = lo;
+    document.getElementById("t-set-hi").value = hi;
+  } catch(e){
+    document.getElementById("res-suggest").innerHTML = `<p class="msg">保存できませんでした</p>`;
+  }
+}
+window.applySuggest = applySuggest;
 
 // 良かった点1つ + 直す点を最大2つ、やさしい言葉で
 function advice(r){
