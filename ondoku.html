@@ -1,0 +1,822 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>音読チャレンジ</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Hiragino Maru Gothic Pro', 'BIZ UDGothic', sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+      min-height: 100vh;
+      color: #fff;
+      overflow-x: hidden;
+    }
+
+    /* ========== SCREENS ========== */
+    .screen { display: none; min-height: 100vh; padding: 20px; }
+    .screen.active { display: flex; flex-direction: column; align-items: center; gap: 18px; }
+
+    .title { font-size: 1.9em; font-weight: bold; text-align: center; margin-top: 18px; }
+    .title .sub { display: block; font-size: 0.45em; font-weight: normal; color: #bcd; margin-top: 6px; }
+    .lead { font-size: 1.05em; color: #cde; text-align: center; line-height: 1.7; }
+
+    /* ========== BUTTONS ========== */
+    .btn {
+      padding: 16px 40px; font-size: 1.3em; font-weight: bold;
+      border: none; border-radius: 50px; cursor: pointer;
+      transition: transform 0.1s, box-shadow 0.1s; min-width: 200px;
+      font-family: inherit;
+    }
+    .btn:active { transform: scale(0.96); }
+    .btn:disabled { opacity: 0.5; cursor: default; }
+    .btn-gold { background: linear-gradient(135deg, #ffd700, #ffaa00); color: #1a1a2e; box-shadow: 0 4px 20px rgba(255,215,0,0.5); }
+    .btn-blue { background: linear-gradient(135deg, #4fc3f7, #0288d1); color: #fff; box-shadow: 0 4px 20px rgba(79,195,247,0.4); }
+    .btn-green { background: linear-gradient(135deg, #81c784, #388e3c); color: #fff; box-shadow: 0 4px 20px rgba(129,199,132,0.4); }
+    .btn-red { background: linear-gradient(135deg, #e57373, #c62828); color: #fff; box-shadow: 0 4px 20px rgba(229,115,115,0.4); }
+    .btn-gray { background: #555; color: #ccc; }
+    .btn-sm { padding: 8px 20px; font-size: 1em; min-width: unset; }
+    .btn-xs { padding: 5px 12px; font-size: 0.85em; min-width: unset; border-radius: 20px; }
+
+    .back-btn {
+      align-self: flex-start; background: rgba(10,10,30,0.55);
+      border: 1px solid rgba(255,255,255,0.3); color: #fff;
+      padding: 8px 20px; border-radius: 50px; cursor: pointer;
+      font-family: inherit; font-size: 1em;
+    }
+
+    .panel {
+      background: rgba(255,255,255,0.08); border-radius: 20px;
+      padding: 20px; width: 100%; max-width: 560px;
+    }
+    .panel h3 { font-size: 1.15em; margin-bottom: 12px; color: #ffd700; }
+
+    /* ========== NUMBER GRID ========== */
+    .no-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 10px; width: 100%; max-width: 560px; }
+    .no-btn {
+      aspect-ratio: 1; border: none; border-radius: 16px;
+      background: rgba(255,255,255,0.12); color: #fff;
+      font-size: 1.5em; font-weight: bold; cursor: pointer; font-family: inherit;
+      transition: transform 0.1s, background 0.15s;
+    }
+    .no-btn:hover { background: rgba(255,215,0,0.3); }
+    .no-btn:active { transform: scale(0.94); }
+    .no-btn .mark { display: block; font-size: 0.45em; color: #ffd700; font-weight: normal; }
+
+    /* ========== PIN PAD ========== */
+    .pin-dots { display: flex; gap: 14px; justify-content: center; margin: 6px 0 4px; }
+    .pin-dot { width: 22px; height: 22px; border-radius: 50%; background: rgba(255,255,255,0.15); border: 2px solid rgba(255,255,255,0.4); }
+    .pin-dot.filled { background: #ffd700; border-color: #ffd700; }
+    .pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; max-width: 300px; width: 100%; }
+    .pad button {
+      padding: 18px 0; font-size: 1.6em; font-weight: bold; border: none; border-radius: 16px;
+      background: rgba(255,255,255,0.12); color: #fff; cursor: pointer; font-family: inherit;
+    }
+    .pad button:active { transform: scale(0.94); }
+    .pad .wide { grid-column: span 1; font-size: 1.1em; }
+    .msg { min-height: 1.5em; color: #ff8a80; font-size: 1em; text-align: center; }
+    .msg.ok { color: #a5d6a7; }
+
+    /* ========== RECORDING ========== */
+    .vol-wrap { width: 100%; max-width: 460px; }
+    .vol-bar { height: 26px; border-radius: 13px; background: rgba(0,0,0,0.35); overflow: hidden; }
+    .vol-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #4fc3f7, #81c784, #ffd700); transition: width 0.08s linear; }
+    .timer { font-size: 3.4em; font-weight: bold; letter-spacing: 2px; }
+    .rec-dot { display: inline-block; width: 16px; height: 16px; border-radius: 50%; background: #e53935; animation: blink 1s infinite; vertical-align: middle; margin-right: 8px; }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.25} }
+
+    /* ========== RESULT ========== */
+    .score-big { font-size: 5.2em; font-weight: bold; line-height: 1; color: #ffd700; text-shadow: 0 0 24px rgba(255,215,0,0.6); }
+    .score-big .unit { font-size: 0.3em; color: #fff; }
+    .best-badge { background: linear-gradient(135deg, #ffd700, #ffaa00); color: #1a1a2e; font-weight: bold; padding: 6px 18px; border-radius: 50px; font-size: 1.05em; }
+    .meters { width: 100%; max-width: 460px; display: flex; flex-direction: column; gap: 12px; }
+    .meter-row { display: grid; grid-template-columns: 5.2em 1fr 2.6em; align-items: center; gap: 10px; }
+    .meter-row .label { font-size: 1.02em; }
+    .meter-track { height: 18px; border-radius: 9px; background: rgba(0,0,0,0.35); overflow: hidden; }
+    .meter-fill { height: 100%; border-radius: 9px; transition: width 0.6s ease-out; }
+    .meter-row .val { font-size: 0.95em; text-align: right; color: #cde; }
+    .advice { width: 100%; max-width: 460px; display: flex; flex-direction: column; gap: 8px; }
+    .advice div { background: rgba(255,255,255,0.1); border-radius: 12px; padding: 10px 14px; font-size: 1.05em; }
+
+    /* ========== HISTORY BARS ========== */
+    .hist { display: flex; align-items: flex-end; gap: 6px; height: 90px; }
+    .hist div { flex: 1; background: linear-gradient(180deg, #4fc3f7, #0288d1); border-radius: 4px 4px 0 0; min-height: 3px; position: relative; }
+    .hist div span { position: absolute; top: -18px; left: 0; right: 0; text-align: center; font-size: 0.7em; color: #cde; }
+
+    /* ========== TEACHER TABLE ========== */
+    table { width: 100%; border-collapse: collapse; font-size: 0.95em; }
+    th, td { padding: 8px 6px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.15); }
+    th { color: #ffd700; font-size: 0.9em; }
+    td.num { font-weight: bold; font-size: 1.1em; }
+    .t-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+    input[type="number"], input[type="text"] {
+      padding: 9px 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.3);
+      background: rgba(0,0,0,0.3); color: #fff; font-size: 1em; font-family: inherit; width: 100%;
+    }
+    .field { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; }
+    .field label { min-width: 9em; font-size: 0.95em; color: #cde; }
+    .note { font-size: 0.85em; color: #9ab; line-height: 1.6; }
+
+    .loading { font-size: 1.1em; color: #cde; }
+    .center { text-align: center; }
+  </style>
+</head>
+<body>
+
+<!-- ========== TOP ========== -->
+<div class="screen active" id="screen-top">
+  <div class="title">🎤 音読チャレンジ<span class="sub">3年1組</span></div>
+  <p class="lead">おうちで音読を したら<br>この アプリで さいてん できます！</p>
+  <button class="btn btn-gold" onclick="goSelect()">じぶんの ばんごうを えらぶ</button>
+  <button class="btn btn-gray btn-sm" onclick="show('screen-teacher-pin')">先生のページ</button>
+  <p class="note center" id="top-note"></p>
+</div>
+
+<!-- ========== SELECT NUMBER ========== -->
+<div class="screen" id="screen-select">
+  <button class="back-btn" onclick="show('screen-top')">← もどる</button>
+  <div class="title">ばんごうを えらんでね</div>
+  <div class="no-grid" id="no-grid"></div>
+  <p class="note center">じぶんの しゅっせきばんごう を おしてね</p>
+</div>
+
+<!-- ========== PIN INPUT ========== -->
+<div class="screen" id="screen-pin">
+  <button class="back-btn" onclick="goSelect()">← もどる</button>
+  <div class="title" id="pin-title">パスワードを いれてね</div>
+  <p class="lead" id="pin-lead"></p>
+  <div class="pin-dots" id="pin-dots"></div>
+  <div class="msg" id="pin-msg"></div>
+  <div class="pad" id="pin-pad"></div>
+</div>
+
+<!-- ========== CHILD HOME ========== -->
+<div class="screen" id="screen-home">
+  <button class="back-btn" onclick="logout()">← ばんごうを かえる</button>
+  <div class="title" id="home-title"></div>
+  <div class="panel center">
+    <h3>じぶんの さいこう きろく</h3>
+    <div class="score-big" id="home-best">-<span class="unit">点</span></div>
+    <p class="note" id="home-plays"></p>
+  </div>
+  <button class="btn btn-gold" onclick="startRecord()">音読を はじめる</button>
+  <div class="panel" id="home-hist-panel" style="display:none">
+    <h3>これまでの きろく</h3>
+    <div class="hist" id="home-hist"></div>
+  </div>
+</div>
+
+<!-- ========== RECORDING ========== -->
+<div class="screen" id="screen-record">
+  <div class="title" id="rec-title">じゅんび中…</div>
+  <p class="lead" id="rec-lead">しずかに して まってね</p>
+  <div class="timer" id="rec-timer">0:00</div>
+  <div class="vol-wrap">
+    <div class="vol-bar"><div class="vol-fill" id="vol-fill"></div></div>
+    <p class="note center" style="margin-top:8px">こえの 大きさ</p>
+  </div>
+  <button class="btn btn-red" id="rec-stop" onclick="stopRecord()" disabled>読みおわった！</button>
+  <button class="btn btn-gray btn-sm" onclick="cancelRecord()">やめる</button>
+</div>
+
+<!-- ========== RESULT ========== -->
+<div class="screen" id="screen-result">
+  <div class="title" id="res-title">けっか</div>
+  <div class="score-big" id="res-score">0<span class="unit">点</span></div>
+  <div id="res-best-badge" style="display:none" class="best-badge">🎉 じこベスト こうしん！</div>
+  <div class="meters" id="res-meters"></div>
+  <div class="advice" id="res-advice"></div>
+  <p class="note center" id="res-save"></p>
+  <button class="btn btn-gold" onclick="startRecord()">もう1回 よむ</button>
+  <button class="btn btn-blue btn-sm" onclick="openHome()">ホームに もどる</button>
+</div>
+
+<!-- ========== TEACHER PIN ========== -->
+<div class="screen" id="screen-teacher-pin">
+  <button class="back-btn" onclick="show('screen-top')">← もどる</button>
+  <div class="title">先生のページ<span class="sub">先生用パスワード（4けた）</span></div>
+  <div class="pin-dots" id="tpin-dots"></div>
+  <div class="msg" id="tpin-msg"></div>
+  <div class="pad" id="tpin-pad"></div>
+</div>
+
+<!-- ========== TEACHER PAGE ========== -->
+<div class="screen" id="screen-teacher">
+  <button class="back-btn" onclick="show('screen-top')">← とじる</button>
+  <div class="title">先生のページ</div>
+  <div class="panel">
+    <h3>児童のハイスコア</h3>
+    <div id="t-table-wrap" class="loading">読み込み中…</div>
+    <button class="btn btn-blue btn-sm" style="margin-top:12px" onclick="loadTeacher()">🔄 更新</button>
+  </div>
+  <div class="panel">
+    <h3>児童の追加・削除</h3>
+    <div class="field">
+      <label>出席番号</label>
+      <input type="number" id="t-add-no" min="1" max="99" placeholder="例: 28">
+      <button class="btn btn-green btn-sm" onclick="addStudent()">追加</button>
+    </div>
+    <p class="note">削除は上の表の「削除」ボタンから。削除するとその子のスコアも消えます。</p>
+  </div>
+  <div class="panel">
+    <h3>設定</h3>
+    <div class="field">
+      <label>先生用パスワード</label>
+      <input type="text" id="t-set-tpin" maxlength="4" inputmode="numeric" placeholder="4けた">
+      <button class="btn btn-blue btn-sm" onclick="saveTeacherPin()">変更</button>
+    </div>
+    <div class="field">
+      <label>はやさの めやす（下限）</label>
+      <input type="number" id="t-set-lo" step="0.1" min="1" max="10">
+    </div>
+    <div class="field">
+      <label>はやさの めやす（上限）</label>
+      <input type="number" id="t-set-hi" step="0.1" min="1" max="12">
+      <button class="btn btn-blue btn-sm" onclick="saveSettings()">保存</button>
+    </div>
+    <p class="note">
+      「1秒あたりの音のかたまりの数」の適正帯です（初期値 3.0〜5.5）。実際に何人か読んでみて、
+      ちょうど良い速さの子が満点になるよう微調整してください。狭くすると厳しく、広げると甘くなります。
+    </p>
+    <div class="msg" id="t-msg"></div>
+  </div>
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getFirestore, doc, getDoc, setDoc, updateDoc, deleteDoc, collection, getDocs }
+  from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+/* ========== FIREBASE ========== */
+const firebaseConfig = {
+  apiKey: "AIzaSyAc4XoJumywett0EkvWdFTCilS7Exdio6I",
+  authDomain: "ondoku-3-1.firebaseapp.com",
+  projectId: "ondoku-3-1",
+  storageBucket: "ondoku-3-1.firebasestorage.app",
+  messagingSenderId: "842895404150",
+  appId: "1:842895404150:web:987333b09edcb2080a0357"
+};
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+
+const META = () => doc(db, "meta", "class");
+const STU  = (no) => doc(db, "students", String(no));
+const STUS = () => collection(db, "students");
+
+const DEFAULT_SETTINGS = { paceLo: 3.0, paceHi: 5.5 };
+const INITIAL_PIN = "1111";
+const CLASS_SIZE = 27;
+
+/* ========== STATE ========== */
+let meta = null;          // { teacherPin, settings }
+let me = null;            // ログイン中の児童データ
+let lastResult = null;
+
+/* ========== SCREEN ========== */
+function show(id){
+  document.querySelectorAll(".screen").forEach(s => s.classList.remove("active"));
+  document.getElementById(id).classList.add("active");
+  window.scrollTo(0,0);
+}
+window.show = show;
+
+/* ========== META（名簿・設定）========== */
+// 初回アクセス時は27人分を自動で作る。以後は既存データを読むだけ。
+async function ensureMeta(){
+  const snap = await getDoc(META());
+  if (snap.exists()){
+    meta = snap.data();
+    meta.settings = Object.assign({}, DEFAULT_SETTINGS, meta.settings || {});
+    return;
+  }
+  meta = { teacherPin: "1234", settings: DEFAULT_SETTINGS, nos: range(1, CLASS_SIZE) };
+  await setDoc(META(), meta);
+  // 児童ドキュメントもまとめて作成
+  for (const n of meta.nos) await setDoc(STU(n), newStudent(n));
+}
+function newStudent(no){
+  return { no, pin: INITIAL_PIN, pinSet: false, best: 0, plays: 0, lastAt: null, bestDetail: null, history: [] };
+}
+function range(a, b){ const r = []; for (let i = a; i <= b; i++) r.push(i); return r; }
+
+async function getNos(){
+  const snap = await getDocs(STUS());
+  const nos = [];
+  snap.forEach(d => nos.push(Number(d.id)));
+  return nos.sort((a,b) => a - b);
+}
+
+/* ========== 児童: 番号選択 ========== */
+async function goSelect(){
+  show("screen-select");
+  const grid = document.getElementById("no-grid");
+  grid.innerHTML = '<p class="loading">読み込み中…</p>';
+  try {
+    await ensureMeta();
+    const nos = await getNos();
+    grid.innerHTML = "";
+    for (const n of nos){
+      const b = document.createElement("button");
+      b.className = "no-btn";
+      b.innerHTML = n;
+      b.onclick = () => askPin(n);
+      grid.appendChild(b);
+    }
+  } catch(e){
+    grid.innerHTML = `<p class="msg">つながりませんでした。<br>もういちど ためしてね。<br><span class="note">${e.code||e.message}</span></p>`;
+  }
+}
+window.goSelect = goSelect;
+
+/* ========== PIN パッド（共通）========== */
+function buildPad(padId, dotsId, onDone){
+  const pad = document.getElementById(padId);
+  const dots = document.getElementById(dotsId);
+  let buf = "";
+  const render = () => {
+    dots.innerHTML = "";
+    for (let i = 0; i < 4; i++){
+      const d = document.createElement("div");
+      d.className = "pin-dot" + (i < buf.length ? " filled" : "");
+      dots.appendChild(d);
+    }
+  };
+  pad.innerHTML = "";
+  const keys = ["1","2","3","4","5","6","7","8","9","けす","0","OK"];
+  for (const k of keys){
+    const b = document.createElement("button");
+    b.textContent = k;
+    if (k === "けす" || k === "OK") b.className = "wide";
+    b.onclick = () => {
+      if (k === "けす") buf = buf.slice(0, -1);
+      else if (k === "OK"){ if (buf.length === 4) onDone(buf, () => { buf = ""; render(); }); return; }
+      else if (buf.length < 4) buf += k;
+      render();
+      if (buf.length === 4) onDone(buf, () => { buf = ""; render(); });
+    };
+    pad.appendChild(b);
+  }
+  render();
+  return { reset: () => { buf = ""; render(); } };
+}
+
+/* ========== 児童: PIN 入力 / 初回設定 ========== */
+let pinPad = null, pinStage = "check", pinFirst = "", pinTargetNo = null;
+
+async function askPin(no){
+  pinTargetNo = no;
+  pinStage = "check";
+  pinFirst = "";
+  document.getElementById("pin-msg").textContent = "";
+  document.getElementById("pin-msg").className = "msg";
+  show("screen-pin");
+  document.getElementById("pin-title").textContent = `${no}番 の パスワード`;
+
+  let snap;
+  try { snap = await getDoc(STU(no)); }
+  catch(e){ document.getElementById("pin-msg").textContent = "つながりませんでした"; return; }
+  if (!snap.exists()){ document.getElementById("pin-msg").textContent = "この ばんごうは ありません"; return; }
+  me = snap.data();
+
+  document.getElementById("pin-lead").innerHTML = me.pinSet
+    ? "じぶんで きめた 4けたの すうじ"
+    : `はじめての 人は <b>${INITIAL_PIN}</b> だよ`;
+
+  if (!pinPad) pinPad = buildPad("pin-pad", "pin-dots", handlePin);
+  else pinPad.reset();
+}
+
+async function handlePin(code, reset){
+  const msg = document.getElementById("pin-msg");
+  if (pinStage === "check"){
+    if (code !== me.pin){ msg.className = "msg"; msg.textContent = "ちがうよ。もういちど！"; reset(); return; }
+    if (!me.pinSet){
+      pinStage = "new1";
+      msg.className = "msg ok";
+      msg.textContent = "あたらしい パスワードを きめよう！";
+      document.getElementById("pin-title").textContent = "あたらしい パスワード";
+      document.getElementById("pin-lead").textContent = "わすれない 4けたの すうじ";
+      reset(); return;
+    }
+    openHome(); return;
+  }
+  if (pinStage === "new1"){
+    if (code === INITIAL_PIN){ msg.className = "msg"; msg.textContent = `${INITIAL_PIN} いがいに してね`; reset(); return; }
+    pinFirst = code; pinStage = "new2";
+    msg.className = "msg ok"; msg.textContent = "もういちど おなじ すうじを いれてね";
+    reset(); return;
+  }
+  if (pinStage === "new2"){
+    if (code !== pinFirst){
+      pinStage = "new1"; msg.className = "msg"; msg.textContent = "ちがったよ。もういちど きめよう";
+      reset(); return;
+    }
+    try {
+      await updateDoc(STU(me.no), { pin: pinFirst, pinSet: true });
+      me.pin = pinFirst; me.pinSet = true;
+      openHome();
+    } catch(e){ msg.className = "msg"; msg.textContent = "ほぞん できませんでした"; reset(); }
+  }
+}
+
+function logout(){ me = null; goSelect(); }
+window.logout = logout;
+
+/* ========== 児童ホーム ========== */
+function openHome(){
+  show("screen-home");
+  document.getElementById("home-title").textContent = `${me.no}番 の ページ`;
+  document.getElementById("home-best").innerHTML = (me.best || 0) + '<span class="unit">点</span>';
+  document.getElementById("home-plays").textContent =
+    me.plays ? `これまで ${me.plays}回 よみました` : "まだ よんで いないよ";
+  const hist = (me.history || []).slice(-10);
+  const panel = document.getElementById("home-hist-panel");
+  if (hist.length){
+    panel.style.display = "";
+    const box = document.getElementById("home-hist");
+    box.innerHTML = "";
+    for (const h of hist){
+      const d = document.createElement("div");
+      d.style.height = Math.max(4, h.score) + "%";
+      d.innerHTML = `<span>${h.score}</span>`;
+      box.appendChild(d);
+    }
+  } else panel.style.display = "none";
+}
+window.openHome = openHome;
+
+/* ==================================================
+   音声解析エンジン（すべて端末内で処理・外部送信なし）
+   ================================================== */
+const REC_MAX_SEC = 180;   // 3分で自動停止
+const REC_MIN_SEC = 8;     // これより短いと採点しない
+const CALIB_SEC = 1.2;     // 環境音（ノイズフロア）を測る時間
+
+let audio = null;   // { ctx, stream, analyser, raf }
+let rec = null;     // { frames, t0, noiseFloor, timerId }
+
+async function startRecord(){
+  show("screen-record");
+  document.getElementById("rec-stop").disabled = true;
+  document.getElementById("rec-timer").textContent = "0:00";
+  document.getElementById("vol-fill").style.width = "0%";
+  document.getElementById("rec-title").textContent = "じゅんび中…";
+  document.getElementById("rec-lead").textContent = "しずかに して まってね";
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        // こえの大きさを正しく測るため、自動調整はすべて切る
+        echoCancellation: false, noiseSuppression: false, autoGainControl: false
+      }
+    });
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const src = ctx.createMediaStreamSource(stream);
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 2048;
+    analyser.smoothingTimeConstant = 0;
+    src.connect(analyser);
+    audio = { ctx, stream, analyser, buf: new Float32Array(analyser.fftSize) };
+  } catch(e){
+    document.getElementById("rec-title").textContent = "マイクが つかえません";
+    document.getElementById("rec-lead").innerHTML =
+      "マイクの きょかを 「ゆるす」に して<br>もういちど ためしてね";
+    return;
+  }
+
+  rec = { frames: [], t0: 0, noise: [], phase: "calib" };
+  loop();
+  setTimeout(() => {
+    // キャリブレーション終了 → 本番へ
+    if (!rec || rec.phase !== "calib") return;
+    rec.noiseFloor = median(rec.noise) || 1e-5;
+    rec.phase = "rec";
+    rec.t0 = performance.now();
+    document.getElementById("rec-title").innerHTML = '<span class="rec-dot"></span>よんでいます';
+    document.getElementById("rec-lead").textContent = "きょうかしょを 読んでね！";
+    document.getElementById("rec-stop").disabled = false;
+  }, CALIB_SEC * 1000);
+}
+window.startRecord = startRecord;
+
+function loop(){
+  if (!audio || !rec) return;
+  audio.analyser.getFloatTimeDomainData(audio.buf);
+  const rms = calcRms(audio.buf);
+
+  if (rec.phase === "calib"){
+    rec.noise.push(rms);
+  } else {
+    const t = (performance.now() - rec.t0) / 1000;
+    const pitch = rms > rec.noiseFloor * 3 ? detectPitch(audio.buf, audio.ctx.sampleRate) : 0;
+    rec.frames.push({ t, rms, pitch });
+    // 表示（ノイズフロアを0、その30倍を満タンの目安に）
+    const rel = Math.min(1, Math.max(0, Math.log10(rms / rec.noiseFloor) / Math.log10(30)));
+    document.getElementById("vol-fill").style.width = (rel * 100) + "%";
+    document.getElementById("rec-timer").textContent = fmtTime(t);
+    if (t >= REC_MAX_SEC){ stopRecord(); return; }
+  }
+  audio.raf = requestAnimationFrame(loop);
+}
+
+function calcRms(buf){
+  let s = 0;
+  for (let i = 0; i < buf.length; i++) s += buf[i] * buf[i];
+  return Math.sqrt(s / buf.length) + 1e-9;
+}
+
+// 自己相関によるピッチ検出（80〜500Hz）
+function detectPitch(buf, sr){
+  const minLag = Math.floor(sr / 500), maxLag = Math.floor(sr / 80);
+  let best = -1, bestVal = 0, prev = 0;
+  for (let lag = minLag; lag <= maxLag && lag < buf.length; lag++){
+    let sum = 0;
+    for (let i = 0; i + lag < buf.length; i += 2) sum += buf[i] * buf[i + lag];
+    if (sum > bestVal){ bestVal = sum; best = lag; }
+    prev = sum;
+  }
+  if (best < 0 || bestVal <= 0) return 0;
+  return sr / best;
+}
+
+function cancelRecord(){ teardown(); openHome(); }
+window.cancelRecord = cancelRecord;
+
+function teardown(){
+  if (audio){
+    if (audio.raf) cancelAnimationFrame(audio.raf);
+    audio.stream.getTracks().forEach(t => t.stop());
+    audio.ctx.close();
+    audio = null;
+  }
+  rec = null;
+}
+
+async function stopRecord(){
+  if (!rec || rec.phase !== "rec"){ teardown(); openHome(); return; }
+  const frames = rec.frames, noiseFloor = rec.noiseFloor;
+  const dur = frames.length ? frames[frames.length - 1].t : 0;
+  teardown();
+
+  if (dur < REC_MIN_SEC){
+    show("screen-result");
+    document.getElementById("res-title").textContent = "みじかすぎます";
+    document.getElementById("res-score").innerHTML = '—';
+    document.getElementById("res-best-badge").style.display = "none";
+    document.getElementById("res-meters").innerHTML = "";
+    document.getElementById("res-advice").innerHTML =
+      `<div>${REC_MIN_SEC}びょう いじょう よんでから「読みおわった！」を おしてね</div>`;
+    document.getElementById("res-save").textContent = "";
+    return;
+  }
+  const result = score(frames, noiseFloor, dur, meta.settings);
+  lastResult = result;
+  await saveResult(result);
+  renderResult(result);
+}
+window.stopRecord = stopRecord;
+
+/* ========== 採点 ==========
+   4項目すべて「ちょうど良い範囲」で評価する（多いほど良い、ではない）。
+   各項目は最低30点にとどめ、理不尽な低得点で意欲を折らないようにする。 */
+function score(frames, noiseFloor, dur, st){
+  const voiced = frames.filter(f => f.rms > noiseFloor * 3);
+  const voicedRatio = voiced.length / frames.length;
+
+  /* --- 声量: 環境音との比(SNR)。端末のマイク感度差を吸収する --- */
+  const snrDb = 20 * Math.log10(median(voiced.map(f => f.rms)) / noiseFloor || 1);
+  // 粗く3段階（こえの大きさは細かい点差にしない）
+  const volScore = snrDb >= 18 ? 100 : snrDb >= 12 ? 70 : 40;
+
+  /* --- はやさ: エネルギー包絡のピーク数 ÷ 時間 ≒ 1秒あたりの音のかたまり --- */
+  const env = smooth(frames.map(f => f.rms), 3);
+  const thr = noiseFloor * 4;
+  let peaks = 0;
+  for (let i = 2; i < env.length - 2; i++){
+    if (env[i] > thr && env[i] >= env[i-1] && env[i] > env[i+1] && env[i] > env[i-2] && env[i] > env[i+2]) peaks++;
+  }
+  const pace = peaks / dur;
+  const paceScore = plateau(pace, st.paceLo * 0.5, st.paceLo, st.paceHi, st.paceHi * 1.7);
+
+  /* --- 抑揚: 声の高さのばらつき（半音単位）。単調も過剰も低くなる --- */
+  const pitches = voiced.map(f => f.pitch).filter(p => p > 60 && p < 600);
+  let intoScore = 50, semi = 0;
+  if (pitches.length > 20){
+    const st_ = pitches.map(p => 12 * Math.log2(p / 100));
+    semi = iqr(st_);
+    intoScore = plateau(semi, 0.4, 2.0, 7.0, 13);
+  }
+
+  /* --- スラスラ: 長い無音(0.4秒以上)が全体に占める割合 --- */
+  let pauseTime = 0, run = 0, longPauses = 0;
+  const dt = dur / frames.length;
+  for (const f of frames){
+    if (f.rms <= noiseFloor * 3) run += dt;
+    else { if (run >= 0.4){ pauseTime += run; longPauses++; } run = 0; }
+  }
+  if (run >= 0.4){ pauseTime += run; longPauses++; }
+  const pauseRatio = pauseTime / dur;
+  // 少しの間はOK、多すぎるとつっかえ扱い
+  const fluScore = pauseRatio <= 0.12 ? 100 : plateau(pauseRatio, -1, 0.12, 0.12, 0.45);
+
+  const items = [
+    { key: "vol", label: "こえの 大きさ", score: clampScore(volScore), color: "#4fc3f7" },
+    { key: "pace", label: "はやさ",       score: clampScore(paceScore), color: "#81c784" },
+    { key: "into", label: "よみかた",     score: clampScore(intoScore), color: "#ba68c8" },
+    { key: "flu",  label: "スラスラ",     score: clampScore(fluScore),  color: "#ffd54f" }
+  ];
+  const total = Math.round(items.reduce((a, b) => a + b.score, 0) / items.length);
+
+  return { total, items, raw: { snrDb, pace, semi, pauseRatio, longPauses, dur, voicedRatio } };
+}
+
+function clampScore(s){ return Math.round(Math.min(100, Math.max(30, s))); }
+
+// 台形型スコア: loOk〜hiOk が満点、そこから外れるほど下がる
+function plateau(v, loFail, loOk, hiOk, hiFail){
+  if (v >= loOk && v <= hiOk) return 100;
+  if (v < loOk)  return loOk === loFail ? 0 : 100 * (v - loFail) / (loOk - loFail);
+  return hiFail === hiOk ? 0 : 100 * (hiFail - v) / (hiFail - hiOk);
+}
+function median(a){ if (!a.length) return 0; const s = [...a].sort((x,y)=>x-y); return s[Math.floor(s.length/2)]; }
+function iqr(a){ const s = [...a].sort((x,y)=>x-y); return s[Math.floor(s.length*0.85)] - s[Math.floor(s.length*0.15)]; }
+function smooth(a, n){
+  const out = [];
+  for (let i = 0; i < a.length; i++){
+    let s = 0, c = 0;
+    for (let j = Math.max(0, i-n); j <= Math.min(a.length-1, i+n); j++){ s += a[j]; c++; }
+    out.push(s / c);
+  }
+  return out;
+}
+function fmtTime(s){ const m = Math.floor(s/60), r = Math.floor(s%60); return `${m}:${String(r).padStart(2,"0")}`; }
+
+/* ========== 結果表示 ========== */
+function renderResult(r){
+  show("screen-result");
+  document.getElementById("res-title").textContent = "けっか はっぴょう！";
+  document.getElementById("res-score").innerHTML = r.total + '<span class="unit">点</span>';
+  document.getElementById("res-best-badge").style.display = r.isBest ? "" : "none";
+
+  const box = document.getElementById("res-meters");
+  box.innerHTML = "";
+  for (const it of r.items){
+    const row = document.createElement("div");
+    row.className = "meter-row";
+    row.innerHTML = `<div class="label">${it.label}</div>
+      <div class="meter-track"><div class="meter-fill" style="width:0%;background:${it.color}"></div></div>
+      <div class="val">${it.score}</div>`;
+    box.appendChild(row);
+    requestAnimationFrame(() => { row.querySelector(".meter-fill").style.width = it.score + "%"; });
+  }
+  document.getElementById("res-advice").innerHTML =
+    advice(r).map(a => `<div>${a}</div>`).join("");
+  document.getElementById("res-save").textContent = r.saved
+    ? "きろく しました" : "※ きろくが ほぞん できませんでした";
+}
+
+// 良かった点1つ + 直す点を最大2つ、やさしい言葉で
+function advice(r){
+  const out = [];
+  const best = [...r.items].sort((a,b) => b.score - a.score)[0];
+  out.push(`👍 ${best.label} が よかったよ！`);
+  const low = r.items.filter(i => i.score < 85).sort((a,b) => a.score - b.score).slice(0, 2);
+  for (const it of low){
+    if (it.key === "vol") out.push(r.raw.snrDb < 12 ? "🔉 もう少し 大きな こえで よもう" : "🔉 はっきりした こえに して みよう");
+    if (it.key === "pace") out.push(r.raw.pace > meta.settings.paceHi ? "🐢 少し ゆっくり よんで みよう" : "🐇 もう少し テンポよく よんで みよう");
+    if (it.key === "into") out.push(r.raw.semi < 2 ? "🎵 きもちを こめて 読むと もっと よくなるよ" : "🎵 おちついた よみかたに して みよう");
+    if (it.key === "flu") out.push("📖 とちゅうで とまらないよう れんしゅう しよう");
+  }
+  if (out.length === 1) out.push("✨ かんぺき！ すばらしい 音読でした！");
+  return out;
+}
+
+/* ========== 保存 ========== */
+async function saveResult(r){
+  r.isBest = r.total > (me.best || 0);
+  const hist = (me.history || []).concat([{ score: r.total, at: Date.now() }]).slice(-20);
+  const patch = {
+    plays: (me.plays || 0) + 1,
+    lastAt: Date.now(),
+    history: hist
+  };
+  if (r.isBest){
+    patch.best = r.total;
+    patch.bestDetail = r.items.reduce((o, i) => (o[i.key] = i.score, o), {});
+  }
+  Object.assign(me, patch);
+  try { await updateDoc(STU(me.no), patch); r.saved = true; }
+  catch(e){ r.saved = false; }
+}
+
+/* ========== 先生ページ ========== */
+let tpinPad = null;
+function initTeacherPad(){
+  if (tpinPad) { tpinPad.reset(); return; }
+  tpinPad = buildPad("tpin-pad", "tpin-dots", async (code, reset) => {
+    const msg = document.getElementById("tpin-msg");
+    try { await ensureMeta(); } catch(e){ msg.textContent = "つながりませんでした"; reset(); return; }
+    if (code !== (meta.teacherPin || "1234")){ msg.textContent = "パスワードが ちがいます"; reset(); return; }
+    msg.textContent = ""; reset();
+    show("screen-teacher");
+    loadTeacher();
+  });
+}
+
+async function loadTeacher(){
+  const wrap = document.getElementById("t-table-wrap");
+  wrap.className = "loading";
+  wrap.textContent = "読み込み中…";
+  try {
+    const snap = await getDocs(STUS());
+    const rows = [];
+    snap.forEach(d => rows.push(d.data()));
+    rows.sort((a,b) => a.no - b.no);
+    wrap.className = "";
+    wrap.innerHTML = `<table><thead><tr>
+        <th>番号</th><th>ハイスコア</th><th>回数</th><th>最終</th><th>操作</th>
+      </tr></thead><tbody>${rows.map(s => `
+        <tr>
+          <td class="num">${s.no}</td>
+          <td>${s.best ? s.best + "点" : "—"}</td>
+          <td>${s.plays || 0}</td>
+          <td>${s.lastAt ? new Date(s.lastAt).toLocaleDateString("ja-JP",{month:"numeric",day:"numeric"}) : "—"}</td>
+          <td><div class="t-actions">
+            <button class="btn btn-blue btn-xs" onclick="resetPin(${s.no})">PIN初期化</button>
+            <button class="btn btn-red btn-xs" onclick="delStudent(${s.no})">削除</button>
+          </div></td>
+        </tr>`).join("")}</tbody></table>
+      <p class="note" style="margin-top:10px">PIN初期化 → その子は次回 ${INITIAL_PIN} で入り、新しい4けたを決め直します。</p>`;
+    document.getElementById("t-set-lo").value = meta.settings.paceLo;
+    document.getElementById("t-set-hi").value = meta.settings.paceHi;
+  } catch(e){
+    wrap.className = "msg";
+    wrap.textContent = "読み込めませんでした: " + (e.code || e.message);
+  }
+}
+window.loadTeacher = loadTeacher;
+
+async function resetPin(no){
+  if (!confirm(`${no}番のパスワードを ${INITIAL_PIN} に戻しますか？`)) return;
+  await updateDoc(STU(no), { pin: INITIAL_PIN, pinSet: false });
+  tmsg(`${no}番のパスワードを初期化しました`);
+  loadTeacher();
+}
+window.resetPin = resetPin;
+
+async function delStudent(no){
+  if (!confirm(`${no}番を削除しますか？\nこの子のスコアも消えます。`)) return;
+  await deleteDoc(STU(no));
+  tmsg(`${no}番を削除しました`);
+  loadTeacher();
+}
+window.delStudent = delStudent;
+
+async function addStudent(){
+  const v = Number(document.getElementById("t-add-no").value);
+  if (!v || v < 1 || v > 99){ tmsg("1〜99の番号を入れてください"); return; }
+  const ex = await getDoc(STU(v));
+  if (ex.exists()){ tmsg(`${v}番はすでにあります`); return; }
+  await setDoc(STU(v), newStudent(v));
+  document.getElementById("t-add-no").value = "";
+  tmsg(`${v}番を追加しました`);
+  loadTeacher();
+}
+window.addStudent = addStudent;
+
+async function saveTeacherPin(){
+  const v = document.getElementById("t-set-tpin").value.trim();
+  if (!/^\d{4}$/.test(v)){ tmsg("4けたの数字を入れてください"); return; }
+  await updateDoc(META(), { teacherPin: v });
+  meta.teacherPin = v;
+  document.getElementById("t-set-tpin").value = "";
+  tmsg("先生用パスワードを変更しました");
+}
+window.saveTeacherPin = saveTeacherPin;
+
+async function saveSettings(){
+  const lo = Number(document.getElementById("t-set-lo").value);
+  const hi = Number(document.getElementById("t-set-hi").value);
+  if (!(lo > 0 && hi > lo)){ tmsg("下限 < 上限 になるように入れてください"); return; }
+  meta.settings = Object.assign({}, meta.settings, { paceLo: lo, paceHi: hi });
+  await updateDoc(META(), { settings: meta.settings });
+  tmsg("設定を保存しました");
+}
+window.saveSettings = saveSettings;
+
+function tmsg(s){
+  const el = document.getElementById("t-msg");
+  el.className = "msg ok"; el.textContent = s;
+  setTimeout(() => { el.textContent = ""; }, 4000);
+}
+
+/* ========== 起動時 ========== */
+document.querySelector('[onclick="show(\'screen-teacher-pin\')"]').addEventListener("click", initTeacherPad);
+if (!navigator.mediaDevices || !window.AudioContext && !window.webkitAudioContext){
+  document.getElementById("top-note").textContent = "※このブラウザでは 音読の さいてんが つかえません";
+}
+</script>
+</body>
+</html>
