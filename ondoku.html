@@ -697,13 +697,24 @@ function score(frames, noiseFloor, dur, st){
   // 粗く3段階（こえの大きさは細かい点差にしない）
   const volScore = snrDb >= 18 ? 100 : snrDb >= 12 ? 70 : 40;
 
-  /* --- はやさ: 音のかたまり（音節の山）の数 ÷ 時間 --- */
+  /* --- はやさ: 音のかたまり（音節の山）の数 ÷ 時間 ---
+     実際の声は1音節の中でも音量が細かく揺れるので、「前後より大きい点」を
+     すべて拾うと1音節を何度も数えてしまう。直前の谷から十分に立ち上がった
+     山だけを音節とみなす（プロミネンス条件）。 */
   const env = smooth(frames.map(f => f.rms), 2);
+  const envDb = env.map(v => 20 * Math.log10(v));
   const minSep = Math.max(1, Math.round(0.12 / dt));   // 山どうしの最小間隔
+  const PROM = 4;                                      // 谷からの立ち上がり(dB)
   const peakT = [];
-  for (let i = 2; i < env.length - 2; i++){
-    if (env[i] > thr && env[i] >= env[i-1] && env[i] > env[i+1] && env[i] > env[i-2] && env[i] > env[i+2]){
-      if (!peakT.length || i - peakT[peakT.length-1].i >= minSep) peakT.push({ i, t: frames[i].t });
+  let valley = envDb[0];
+  for (let i = 2; i < envDb.length - 2; i++){
+    if (envDb[i] < valley) valley = envDb[i];
+    const isMax = envDb[i] >= envDb[i-1] && envDb[i] > envDb[i+1] && envDb[i] > envDb[i-2] && envDb[i] > envDb[i+2];
+    if (isMax && envDb[i] > thrDb && envDb[i] - valley >= PROM){
+      if (!peakT.length || i - peakT[peakT.length-1].i >= minSep){
+        peakT.push({ i, t: frames[i].t });
+        valley = envDb[i];
+      }
     }
   }
   const pace = peakT.length / dur;
@@ -725,12 +736,17 @@ function score(frames, noiseFloor, dur, st){
   /* --- スラスラ: 「間の多さ」と「リズムのばらつき」の両方で見る ---
      たどたどしい読みは、長い間が少なくても 音と音の間隔がバラバラになる。
      間の量だけでは 一語ずつ細かく詰まる読み方を見のがすため、リズムも測る。 */
-  let pauseTime = 0, run = 0, longPauses = 0;
+  let pauseTime = 0, run = 0, longPauses = 0, shortPauses = 0;
+  const closeRun = () => {
+    if (run >= 0.30){ pauseTime += run; longPauses++; }
+    else if (run >= 0.15){ shortPauses++; }   // 一瞬の口ごもり（診断用）
+    run = 0;
+  };
   for (const f of frames){
     if (f.rms <= thr) run += dt;
-    else { if (run >= 0.30){ pauseTime += run; longPauses++; } run = 0; }
+    else closeRun();
   }
-  if (run >= 0.30){ pauseTime += run; longPauses++; }
+  closeRun();
   const pauseRatio = pauseTime / dur;
   // 句読点や息つぎの間はふつうにあるので、そこまでは満点。多すぎるとつっかえ扱い
   const pauseScore = pauseRatio <= st.pauseOk ? 100 : plateau(pauseRatio, -1, st.pauseOk, st.pauseOk, st.pauseFail);
@@ -755,9 +771,12 @@ function score(frames, noiseFloor, dur, st){
     { key: "into", label: "よみかた",     score: clampScore(intoScore), color: "#ba68c8" },
     { key: "flu",  label: "スラスラ",     score: clampScore(fluScore),  color: "#ffd54f" }
   ];
-  const total = Math.round(items.reduce((a, b) => a + b.score, 0) / items.length);
+  // 平均だけだと苦手が1つあっても高得点になってしまうので、いちばん低い項目も効かせる
+  const mean = items.reduce((a, b) => a + b.score, 0) / items.length;
+  const worst = Math.min(...items.map(i => i.score));
+  const total = Math.round(mean * 0.65 + worst * 0.35);
 
-  return { total, items, raw: { snrDb, pace, semi, pauseRatio, longPauses, cv, dur, voicedRatio } };
+  return { total, items, raw: { snrDb, pace, semi, pauseRatio, longPauses, shortPauses, peaks: peakT.length, cv, dur, voicedRatio } };
 }
 
 function clampScore(s){ return Math.round(Math.min(100, Math.max(30, s))); }
@@ -830,6 +849,7 @@ function renderRaw(r){
     <tr><th>抑揚のはば</th><td>${w.semi.toFixed(2)} 半音</td><td class="note">いまの適正帯 ${s.semiLo}〜${s.semiHi}</td></tr>
     <tr><th>間の割合</th><td>${(w.pauseRatio*100).toFixed(0)} %（${w.longPauses}回）</td><td class="note">${Math.round(s.pauseOk*100)}%以下=満点</td></tr>
     <tr><th>リズムのばらつき</th><td>${w.cv.toFixed(2)}</td><td class="note">${s.rhythmOk}以下=満点（大きいほど たどたどしい）</td></tr>
+    <tr><th>音のかたまり数</th><td>${w.peaks} 個</td><td class="note">口ごもり(0.15〜0.3秒) ${w.shortPauses}回</td></tr>
     <tr><th>読んだ時間</th><td>${w.dur.toFixed(1)} 秒</td><td class="note">声が出ていた割合 ${(w.voicedRatio*100).toFixed(0)}%</td></tr>`;
 
   // 先生の「ふつうの音読」が満点になるよう、その値を中心に余裕をとった帯を提案する
