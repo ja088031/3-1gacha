@@ -257,8 +257,12 @@
       <input type="number" id="t-set-semihi" step="0.1" min="0.5" max="20">
     </div>
     <div class="field">
-      <label>長い間 満点の上限(%)</label>
+      <label>間 満点の上限(%)</label>
       <input type="number" id="t-set-pauseok" step="1" min="5" max="60">
+    </div>
+    <div class="field">
+      <label>リズムのばらつき 上限</label>
+      <input type="number" id="t-set-rhythmok" step="0.05" min="0.2" max="2">
       <button class="btn btn-blue btn-sm" onclick="saveSettings()">保存</button>
     </div>
     <p class="note">
@@ -294,7 +298,8 @@ const STUS = () => collection(db, "students");
 const DEFAULT_SETTINGS = {
   paceLo: 3.0, paceHi: 5.5,      // はやさ（かたまり/秒）
   semiLo: 1.5, semiHi: 8.0,      // 抑揚のはば（半音）
-  pauseOk: 0.22, pauseFail: 0.55 // 長い間の割合（満点の上限 / ここまで下がると最低）
+  pauseOk: 0.22, pauseFail: 0.55,// 長い間の割合（満点の上限 / ここまで下がると最低）
+  rhythmOk: 0.55                 // リズムのばらつき（これ以下で満点。大きいほど たどたどしい）
 };
 const INITIAL_PIN = "1111";
 const CLASS_SIZE = 27;
@@ -672,22 +677,36 @@ function notice(title, lines){
    4項目すべて「ちょうど良い範囲」で評価する（多いほど良い、ではない）。
    各項目は最低30点にとどめ、理不尽な低得点で意欲を折らないようにする。 */
 function score(frames, noiseFloor, dur, st){
-  const voiced = frames.filter(f => f.rms > noiseFloor * 3);
+  const dt = dur / frames.length;
+
+  /* --- 声と無音を分ける基準を、その録音自体から決める ---
+     部屋の物音やマイクの利得で「無音」の水準は変わる。固定倍率だと
+     間まで「声あり」と判定され、つっかえが検出できなくなるため、
+     録音全体の音量分布から その場に合ったしきい値を作る。 */
+  const dbs = frames.map(f => 20 * Math.log10(f.rms));
+  const noiseDb = Math.max(20 * Math.log10(noiseFloor), pct(dbs, 0.05));
+  const speechDb = pct(dbs, 0.90);
+  const thrDb = noiseDb + Math.max(6, (speechDb - noiseDb) * 0.35);
+  const thr = Math.pow(10, thrDb / 20);
+
+  const voiced = frames.filter(f => f.rms > thr);
   const voicedRatio = voiced.length / frames.length;
 
   /* --- 声量: 環境音との比(SNR)。端末のマイク感度差を吸収する --- */
-  const snrDb = 20 * Math.log10(median(voiced.map(f => f.rms)) / noiseFloor || 1);
+  const snrDb = 20 * Math.log10((median(voiced.map(f => f.rms)) || thr) / noiseFloor);
   // 粗く3段階（こえの大きさは細かい点差にしない）
   const volScore = snrDb >= 18 ? 100 : snrDb >= 12 ? 70 : 40;
 
-  /* --- はやさ: エネルギー包絡のピーク数 ÷ 時間 ≒ 1秒あたりの音のかたまり --- */
-  const env = smooth(frames.map(f => f.rms), 3);
-  const thr = noiseFloor * 4;
-  let peaks = 0;
+  /* --- はやさ: 音のかたまり（音節の山）の数 ÷ 時間 --- */
+  const env = smooth(frames.map(f => f.rms), 2);
+  const minSep = Math.max(1, Math.round(0.12 / dt));   // 山どうしの最小間隔
+  const peakT = [];
   for (let i = 2; i < env.length - 2; i++){
-    if (env[i] > thr && env[i] >= env[i-1] && env[i] > env[i+1] && env[i] > env[i-2] && env[i] > env[i+2]) peaks++;
+    if (env[i] > thr && env[i] >= env[i-1] && env[i] > env[i+1] && env[i] > env[i-2] && env[i] > env[i+2]){
+      if (!peakT.length || i - peakT[peakT.length-1].i >= minSep) peakT.push({ i, t: frames[i].t });
+    }
   }
-  const pace = peaks / dur;
+  const pace = peakT.length / dur;
   const paceScore = plateau(pace, st.paceLo * 0.5, st.paceLo, st.paceHi, st.paceHi * 1.7);
 
   /* --- 抑揚: 声の高さのばらつき（半音単位）。単調も過剰も低くなる --- */
@@ -703,17 +722,32 @@ function score(frames, noiseFloor, dur, st){
     intoScore = plateau(semi, st.semiLo * 0.25, st.semiLo, st.semiHi, st.semiHi * 1.9);
   }
 
-  /* --- スラスラ: 長い無音(0.4秒以上)が全体に占める割合 --- */
+  /* --- スラスラ: 「間の多さ」と「リズムのばらつき」の両方で見る ---
+     たどたどしい読みは、長い間が少なくても 音と音の間隔がバラバラになる。
+     間の量だけでは 一語ずつ細かく詰まる読み方を見のがすため、リズムも測る。 */
   let pauseTime = 0, run = 0, longPauses = 0;
-  const dt = dur / frames.length;
   for (const f of frames){
-    if (f.rms <= noiseFloor * 3) run += dt;
-    else { if (run >= 0.4){ pauseTime += run; longPauses++; } run = 0; }
+    if (f.rms <= thr) run += dt;
+    else { if (run >= 0.30){ pauseTime += run; longPauses++; } run = 0; }
   }
-  if (run >= 0.4){ pauseTime += run; longPauses++; }
+  if (run >= 0.30){ pauseTime += run; longPauses++; }
   const pauseRatio = pauseTime / dur;
   // 句読点や息つぎの間はふつうにあるので、そこまでは満点。多すぎるとつっかえ扱い
-  const fluScore = pauseRatio <= st.pauseOk ? 100 : plateau(pauseRatio, -1, st.pauseOk, st.pauseOk, st.pauseFail);
+  const pauseScore = pauseRatio <= st.pauseOk ? 100 : plateau(pauseRatio, -1, st.pauseOk, st.pauseOk, st.pauseFail);
+
+  const gaps = [];
+  for (let k = 1; k < peakT.length; k++){
+    const g = peakT[k].t - peakT[k-1].t;
+    if (g < 1.5) gaps.push(g);           // 間をはさんだ所は除いて、音の連なりだけを見る
+  }
+  let cv = 0;
+  if (gaps.length > 5){
+    const m = gaps.reduce((a,b) => a+b, 0) / gaps.length;
+    const sd = Math.sqrt(gaps.reduce((a,b) => a + (b-m)*(b-m), 0) / gaps.length);
+    cv = sd / (m || 1);
+  }
+  const rhythmScore = gaps.length <= 5 ? 100 : plateau(cv, -1, 0, st.rhythmOk, st.rhythmOk * 2.2);
+  const fluScore = pauseScore * 0.6 + rhythmScore * 0.4;
 
   const items = [
     { key: "vol", label: "こえの 大きさ", score: clampScore(volScore), color: "#4fc3f7" },
@@ -723,7 +757,7 @@ function score(frames, noiseFloor, dur, st){
   ];
   const total = Math.round(items.reduce((a, b) => a + b.score, 0) / items.length);
 
-  return { total, items, raw: { snrDb, pace, semi, pauseRatio, longPauses, dur, voicedRatio } };
+  return { total, items, raw: { snrDb, pace, semi, pauseRatio, longPauses, cv, dur, voicedRatio } };
 }
 
 function clampScore(s){ return Math.round(Math.min(100, Math.max(30, s))); }
@@ -735,6 +769,7 @@ function plateau(v, loFail, loOk, hiOk, hiFail){
   return hiFail === hiOk ? 0 : 100 * (hiFail - v) / (hiFail - hiOk);
 }
 function median(a){ if (!a.length) return 0; const s = [...a].sort((x,y)=>x-y); return s[Math.floor(s.length/2)]; }
+function pct(a, p){ if (!a.length) return 0; const s = [...a].sort((x,y)=>x-y); return s[Math.min(s.length-1, Math.floor(s.length*p))]; }
 function medianFilter(a, w){
   const h = Math.floor(w / 2), out = [];
   for (let i = 0; i < a.length; i++) out.push(median(a.slice(Math.max(0, i-h), i+h+1)));
@@ -793,7 +828,8 @@ function renderRaw(r){
     <tr><th>こえの大きさ（SNR）</th><td>${w.snrDb.toFixed(1)} dB</td><td class="note">18以上=満点 / 12未満=低</td></tr>
     <tr><th>はやさ</th><td>${w.pace.toFixed(2)} かたまり/秒</td><td class="note">いまの適正帯 ${s.paceLo}〜${s.paceHi}</td></tr>
     <tr><th>抑揚のはば</th><td>${w.semi.toFixed(2)} 半音</td><td class="note">いまの適正帯 ${s.semiLo}〜${s.semiHi}</td></tr>
-    <tr><th>長い間の割合</th><td>${(w.pauseRatio*100).toFixed(0)} %（${w.longPauses}回）</td><td class="note">${Math.round(s.pauseOk*100)}%以下=満点</td></tr>
+    <tr><th>間の割合</th><td>${(w.pauseRatio*100).toFixed(0)} %（${w.longPauses}回）</td><td class="note">${Math.round(s.pauseOk*100)}%以下=満点</td></tr>
+    <tr><th>リズムのばらつき</th><td>${w.cv.toFixed(2)}</td><td class="note">${s.rhythmOk}以下=満点（大きいほど たどたどしい）</td></tr>
     <tr><th>読んだ時間</th><td>${w.dur.toFixed(1)} 秒</td><td class="note">声が出ていた割合 ${(w.voicedRatio*100).toFixed(0)}%</td></tr>`;
 
   // 先生の「ふつうの音読」が満点になるよう、その値を中心に余裕をとった帯を提案する
@@ -802,8 +838,9 @@ function renderRaw(r){
     paceHi: r1(w.pace * 1.35),
     semiLo: Math.max(0.5, r1(w.semi * 0.55)),
     semiHi: r1(Math.max(w.semi * 1.7, w.semi + 2)),
-    pauseOk: Math.max(0.15, Math.round(w.pauseRatio * 1.35 * 100) / 100),
-    pauseFail: Math.max(0.45, Math.round(w.pauseRatio * 2.6 * 100) / 100)
+    pauseOk: Math.max(0.15, Math.round(w.pauseRatio * 1.2 * 100) / 100),
+    pauseFail: Math.max(0.42, Math.round(w.pauseRatio * 2.2 * 100) / 100),
+    rhythmOk: Math.max(0.35, r1(w.cv * 1.2))
   };
   window.__suggest = sug;
 
@@ -816,7 +853,7 @@ function renderRaw(r){
     </p>
     <button class="btn btn-gold btn-sm" onclick="applySuggest()">この読み方を「ちょうど良い」の基準にする</button>
     <p class="note" style="margin-top:10px">
-      → はやさ ${sug.paceLo}〜${sug.paceHi} ／ 抑揚 ${sug.semiLo}〜${sug.semiHi} ／ 長い間 ${Math.round(sug.pauseOk*100)}%まで満点
+      → はやさ ${sug.paceLo}〜${sug.paceHi} ／ 抑揚 ${sug.semiLo}〜${sug.semiHi} ／ 間 ${Math.round(sug.pauseOk*100)}%まで ／ リズム ${sug.rhythmOk}まで
     </p>`;
 }
 
@@ -842,6 +879,7 @@ function fillSettingFields(){
   document.getElementById("t-set-semilo").value = s.semiLo;
   document.getElementById("t-set-semihi").value = s.semiHi;
   document.getElementById("t-set-pauseok").value = Math.round(s.pauseOk * 100);
+  document.getElementById("t-set-rhythmok").value = s.rhythmOk;
 }
 
 // 良かった点1つ + 直す点を最大2つ、やさしい言葉で
@@ -968,12 +1006,14 @@ async function saveSettings(){
   const slo = Number(document.getElementById("t-set-semilo").value);
   const shi = Number(document.getElementById("t-set-semihi").value);
   const pok = Number(document.getElementById("t-set-pauseok").value) / 100;
+  const rok = Number(document.getElementById("t-set-rhythmok").value);
   if (!(lo > 0 && hi > lo)){ tmsg("はやさは 下限 < 上限 にしてください"); return; }
   if (!(slo > 0 && shi > slo)){ tmsg("抑揚のはばは 下限 < 上限 にしてください"); return; }
-  if (!(pok > 0 && pok < 1)){ tmsg("長い間の上限は 5〜60 の範囲で入れてください"); return; }
+  if (!(pok > 0 && pok < 1)){ tmsg("間の上限は 5〜60 の範囲で入れてください"); return; }
+  if (!(rok > 0.1)){ tmsg("リズムのばらつきは 0.2以上で入れてください"); return; }
   meta.settings = Object.assign({}, meta.settings, {
     paceLo: lo, paceHi: hi, semiLo: slo, semiHi: shi,
-    pauseOk: pok, pauseFail: Math.max(pok * 2.2, 0.45)
+    pauseOk: pok, pauseFail: Math.max(pok * 2.2, 0.45), rhythmOk: rok
   });
   await updateDoc(META(), { settings: meta.settings });
   tmsg("設定を保存しました");
