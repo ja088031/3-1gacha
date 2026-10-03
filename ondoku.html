@@ -161,6 +161,10 @@
     <div class="score-big" id="home-best">-<span class="unit">点</span></div>
     <p class="note" id="home-plays"></p>
   </div>
+  <div class="panel">
+    <h3>なにを よむ？</h3>
+    <div id="home-lessons" class="no-grid" style="grid-template-columns:1fr"></div>
+  </div>
   <button class="btn btn-gold" onclick="startRecord()">音読を はじめる</button>
   <div class="panel" id="home-hist-panel" style="display:none">
     <h3>これまでの きろく</h3>
@@ -226,6 +230,29 @@
     <p class="note">削除は上の表の「削除」ボタンから。削除するとその子のスコアも消えます。</p>
   </div>
   <div class="panel">
+    <h3>教材の登録</h3>
+    <p class="note" style="margin-bottom:12px">
+      教材を登録すると「はやさ」を採点できます。本文は<b>文字数を数えるだけで保存しません</b>（著作権への配慮）。
+      朗読CDがあれば「お手本を聴く」で録れば、その教材は<b>お手本との時間の比</b>で採点します。
+    </p>
+    <div class="field">
+      <label>教材名</label>
+      <input type="text" id="t-les-name" placeholder="例: 春風をたどって">
+    </div>
+    <div class="field" style="align-items:flex-start">
+      <label>本文を貼り付け</label>
+      <textarea id="t-les-text" rows="4" oninput="updateCharCount()"
+        style="width:100%;padding:9px 12px;border-radius:10px;border:1px solid rgba(255,255,255,0.3);background:rgba(0,0,0,0.3);color:#fff;font-family:inherit;font-size:1em"
+        placeholder="ここに本文を貼り付け（保存されるのは文字数だけです）"></textarea>
+    </div>
+    <div class="field">
+      <label></label>
+      <span id="t-les-count" class="note"></span>
+      <button class="btn btn-green btn-sm" onclick="addLesson()">教材を追加</button>
+    </div>
+    <div id="t-les-list"></div>
+  </div>
+  <div class="panel">
     <h3>マイクの調整テスト</h3>
     <p class="note" style="margin-bottom:12px">
       先生がふつうの速さで20〜30秒ほど音読してみてください。測定値と、<b>それに合わせた「はやさ」の推奨設定</b>が表示されます。
@@ -241,12 +268,20 @@
       <button class="btn btn-blue btn-sm" onclick="saveTeacherPin()">変更</button>
     </div>
     <div class="field">
-      <label>はやさの めやす（下限）</label>
-      <input type="number" id="t-set-lo" step="0.1" min="1" max="10">
+      <label>お手本の何倍まで速く</label>
+      <input type="number" id="t-set-lo" step="0.05" min="0.3" max="2">
     </div>
     <div class="field">
-      <label>はやさの めやす（上限）</label>
-      <input type="number" id="t-set-hi" step="0.1" min="1" max="12">
+      <label>お手本の何倍まで遅く</label>
+      <input type="number" id="t-set-hi" step="0.05" min="0.5" max="4">
+    </div>
+    <div class="field">
+      <label>字/分 下限（CDなしの教材）</label>
+      <input type="number" id="t-set-cpmlo" step="10" min="50" max="600">
+    </div>
+    <div class="field">
+      <label>字/分 上限（CDなしの教材）</label>
+      <input type="number" id="t-set-cpmhi" step="10" min="60" max="900">
     </div>
     <div class="field">
       <label>抑揚のはば（下限）</label>
@@ -255,14 +290,6 @@
     <div class="field">
       <label>抑揚のはば（上限）</label>
       <input type="number" id="t-set-semihi" step="0.1" min="0.5" max="20">
-    </div>
-    <div class="field">
-      <label>間 満点の上限(%)</label>
-      <input type="number" id="t-set-pauseok" step="1" min="5" max="60">
-    </div>
-    <div class="field">
-      <label>リズムのばらつき 上限</label>
-      <input type="number" id="t-set-rhythmok" step="0.05" min="0.2" max="2">
     </div>
     <div class="field">
       <label>こえの大きさ 満点(dB)</label>
@@ -297,13 +324,15 @@ const db = getFirestore(app);
 const META = () => doc(db, "meta", "class");
 const STU  = (no) => doc(db, "students", String(no));
 const STUS = () => collection(db, "students");
+// 教材。本文そのものは保存せず、文字数とお手本の時間だけを持つ（著作権への配慮）
+const LES  = (id) => doc(db, "lessons", String(id));
+const LESS = () => collection(db, "lessons");
 
 // 適正帯の初期値。実際の声に合わせて先生ページの「マイクの調整テスト」で上書きできる
 const DEFAULT_SETTINGS = {
-  paceLo: 3.0, paceHi: 5.5,      // はやさ（かたまり/秒）
+  refLo: 0.85, refHi: 1.45,      // お手本CDの何倍の時間で読めたか（1.0=お手本と同じ）
+  cpmLo: 220,  cpmHi: 380,       // お手本CDがない教材のときの 1分あたりの文字数
   semiLo: 1.5, semiHi: 8.0,      // 抑揚のはば（半音）
-  pauseOk: 0.22, pauseFail: 0.55,// 間の割合（満点の上限 / ここまで下がると最低）
-  rhythmOk: 0.55,                // リズムのばらつき（これ以下で満点。大きいほど たどたどしい）
   snrOk: 15                      // こえの大きさ(dB)。これ以上で満点
 };
 const INITIAL_PIN = "1111";
@@ -313,6 +342,26 @@ const CLASS_SIZE = 27;
 let meta = null;          // { teacherPin, settings }
 let me = null;            // ログイン中の児童データ
 let lastResult = null;
+let lessons = [];         // 教材一覧
+let pickedLesson = null;  // 児童がいま選んでいる教材
+
+let lessonsError = "";
+// 教材が読めなくても、児童のログインや先生ページ本体は動くようにする
+async function loadLessons(){
+  try {
+    const snap = await getDocs(LESS());
+    lessons = [];
+    snap.forEach(d => lessons.push(d.data()));
+    lessons.sort((a, b) => (a.order || 0) - (b.order || 0));
+    lessonsError = "";
+  } catch(e){
+    lessons = [];
+    lessonsError = e.code === "permission-denied"
+      ? "Firestoreのルールで lessons が許可されていません（設定が必要です）"
+      : String(e.code || e.message);
+  }
+  return lessons;
+}
 
 /* ========== SCREEN ========== */
 function show(id){
@@ -355,6 +404,7 @@ async function goSelect(){
   grid.innerHTML = '<p class="loading">読み込み中…</p>';
   try {
     await ensureMeta();
+    await loadLessons();
     const nos = await getNos();
     grid.innerHTML = "";
     for (const n of nos){
@@ -484,8 +534,29 @@ function openHome(){
       box.appendChild(d);
     }
   } else panel.style.display = "none";
+  renderLessonPicker();
 }
 window.openHome = openHome;
+
+// 児童が読む教材を選ぶ。先生が登録していなければ「じゆう音読」だけになる。
+function renderLessonPicker(){
+  const box = document.getElementById("home-lessons");
+  box.innerHTML = "";
+  const opts = lessons.concat([{ id: "", name: "じゆうに よむ（はやさは はかりません）" }]);
+  if (pickedLesson && !lessons.some(l => l.id === pickedLesson.id)) pickedLesson = null;
+  if (!pickedLesson) pickedLesson = lessons[0] || null;
+  for (const l of opts){
+    const b = document.createElement("button");
+    b.className = "no-btn";
+    b.style.cssText = "aspect-ratio:auto;padding:12px;font-size:1.05em;text-align:left";
+    const on = (pickedLesson ? pickedLesson.id : "") === l.id;
+    if (on) b.style.background = "rgba(255,215,0,0.35)";
+    b.innerHTML = (on ? "✅ " : "　") + l.name +
+      (l.refDur ? `<span class="mark">お手本 ${Math.round(l.refDur)}秒</span>` : "");
+    b.onclick = () => { pickedLesson = l.id ? l : null; renderLessonPicker(); };
+    box.appendChild(b);
+  }
+}
 
 /* ==================================================
    音声解析エンジン（すべて端末内で処理・外部送信なし）
@@ -496,10 +567,15 @@ const CALIB_SEC = 1.2;     // 環境音（ノイズフロア）を測る時間
 
 let audio = null;   // { ctx, stream, analyser, raf }
 let rec = null;     // { frames, t0, noiseFloor, phase, interrupted }
-let calibMode = false;  // 先生の調整テスト中は記録せず測定値を表示する
+// "child"=児童の音読 / "calib"=先生の調整テスト（記録しない）/ "ref"=お手本CDの登録
+let recMode = "child";
+let refTargetId = null;   // "ref" のとき、どの教材に登録するか
+let calibMode = false;    // calib と ref では結果を保存しない
 
-async function startRecord(isCalib){
-  calibMode = !!isCalib;
+async function startRecord(mode, lessonId){
+  recMode = mode || "child";
+  refTargetId = lessonId || null;
+  calibMode = recMode !== "child";
   show("screen-record");
   document.getElementById("rec-stop").disabled = true;
   document.getElementById("rec-timer").textContent = "0:00";
@@ -536,15 +612,23 @@ async function startRecord(isCalib){
     rec.noiseFloor = median(rec.noise) || 1e-5;
     rec.phase = "rec";
     rec.t0 = performance.now();
-    document.getElementById("rec-title").innerHTML = '<span class="rec-dot"></span>よんでいます';
-    document.getElementById("rec-lead").textContent = "きょうかしょを 読んでね！";
+    document.getElementById("rec-title").innerHTML = recMode === "ref"
+      ? '<span class="rec-dot"></span>お手本を 聴いています'
+      : '<span class="rec-dot"></span>よんでいます';
+    document.getElementById("rec-lead").textContent = recMode === "ref"
+      ? "CDを再生してください。終わったら下のボタンを押します"
+      : (pickedLesson ? `「${pickedLesson.name}」を 読んでね！` : "きょうかしょを 読んでね！");
     document.getElementById("rec-stop").disabled = false;
   }, CALIB_SEC * 1000);
 }
-window.startRecord = () => startRecord(false);
-window.startCalib = () => startRecord(true);
-window.againRead = () => startRecord(calibMode);
-window.backHome = () => { if (calibMode){ calibMode = false; show("screen-teacher"); } else openHome(); };
+window.startRecord = () => startRecord("child");
+window.startCalib = () => startRecord("calib");
+window.startRefRec = (id) => startRecord("ref", id);
+window.againRead = () => startRecord(recMode, refTargetId);
+window.backHome = () => {
+  if (recMode !== "child"){ recMode = "child"; calibMode = false; show("screen-teacher"); loadTeacher(); }
+  else openHome();
+};
 
 // 録音中に画面が切りかわる／スリープすると測定が途切れるため、記録して採点を止める
 document.addEventListener("visibilitychange", () => {
@@ -651,12 +735,18 @@ async function stopRecord(){
     ]);
     return;
   }
-  const result = score(frames, noiseFloor, dur, meta.settings);
+  const lesson = recMode === "child" ? pickedLesson : null;
+  const result = score(frames, noiseFloor, dur, meta.settings, lesson);
   // 声がほとんど拾えていないときは点を出さない（0点表示で意欲を折らないため）
   if (result.raw.voicedRatio < 0.08){
     notice("こえが きこえませんでした", [
       "マイクに もう少し ちかづいて、大きめの こえで よんで みてね"
     ]);
+    return;
+  }
+  // お手本CDの登録：測った時間と抑揚を教材に保存する（音声は保存しない）
+  if (recMode === "ref"){
+    await saveReference(result);
     return;
   }
   lastResult = result;
@@ -665,6 +755,63 @@ async function stopRecord(){
   renderResult(result);
 }
 window.stopRecord = stopRecord;
+
+/* ========== 教材（お手本CD・文字数） ==========
+   音声も本文も保存しない。残すのは「何秒だったか」「何文字か」という数値だけ。 */
+async function saveReference(r){
+  const l = lessons.find(x => x.id === refTargetId);
+  if (!l){ notice("教材が見つかりません", ["先生ページからやり直してください"]); return; }
+  const patch = { refDur: Math.round(r.raw.speakDur * 10) / 10, refSemi: Math.round(r.raw.semi * 100) / 100 };
+  try {
+    await updateDoc(LES(l.id), patch);
+    Object.assign(l, patch);
+    notice("お手本を とうろくしました", [
+      `「${l.name}」のお手本：${patch.refDur} 秒`,
+      l.chars ? `1分あたり ${Math.round(l.chars / (patch.refDur/60))} 字のペースです` : "",
+      "※ 音声は保存していません（時間の数値だけ）"
+    ].filter(Boolean));
+  } catch(e){
+    notice("保存できませんでした", [String(e.code || e.message)]);
+  }
+}
+
+async function addLesson(){
+  try { await addLessonInner(); }
+  catch(e){ tmsg(e.code === "permission-denied"
+    ? "Firestoreのルールで lessons が許可されていません" : "追加できませんでした: " + (e.code || e.message)); }
+}
+async function addLessonInner(){
+  const name = document.getElementById("t-les-name").value.trim();
+  const text = document.getElementById("t-les-text").value;
+  if (!name){ tmsg("教材名を入れてください"); return; }
+  // 本文は文字数を数えるだけで保存しない
+  const chars = text.replace(/\s+/g, "").length;
+  const id = "L" + Date.now();
+  await setDoc(LES(id), { id, name, chars, refDur: 0, refSemi: 0, order: lessons.length });
+  document.getElementById("t-les-name").value = "";
+  document.getElementById("t-les-text").value = "";
+  updateCharCount();
+  tmsg(`「${name}」を追加しました（${chars}字）`);
+  await loadLessons();
+  loadTeacher();
+}
+window.addLesson = addLesson;
+
+async function delLesson(id){
+  const l = lessons.find(x => x.id === id);
+  if (!confirm(`教材「${l ? l.name : id}」を削除しますか？`)) return;
+  await deleteDoc(LES(id));
+  await loadLessons();
+  tmsg("削除しました");
+  loadTeacher();
+}
+window.delLesson = delLesson;
+
+function updateCharCount(){
+  const t = document.getElementById("t-les-text").value.replace(/\s+/g, "");
+  document.getElementById("t-les-count").textContent = t.length ? `${t.length} 字` : "";
+}
+window.updateCharCount = updateCharCount;
 
 // 採点できなかったときの案内（結果画面を使いまわす）
 function notice(title, lines){
@@ -681,7 +828,7 @@ function notice(title, lines){
 /* ========== 採点 ==========
    4項目すべて「ちょうど良い範囲」で評価する（多いほど良い、ではない）。
    各項目は最低30点にとどめ、理不尽な低得点で意欲を折らないようにする。 */
-function score(frames, noiseFloor, dur, st){
+function score(frames, noiseFloor, dur, st, lesson){
   const dt = dur / frames.length;
 
   /* --- 声と無音を分ける基準を、その録音自体から決める ---
@@ -697,33 +844,30 @@ function score(frames, noiseFloor, dur, st){
   const voiced = frames.filter(f => f.rms > thr);
   const voicedRatio = voiced.length / frames.length;
 
+  // 前後の無音を除いた「実際に読んでいた時間」。お手本との比較を公平にするため。
+  let first = -1, last = -1;
+  for (let i = 0; i < frames.length; i++){
+    if (frames[i].rms > thr){ if (first < 0) first = i; last = i; }
+  }
+  const speakDur = (first >= 0 && last > first) ? frames[last].t - frames[first].t : dur;
+
   /* --- 声量: 環境音との比(SNR)。端末のマイク感度差を吸収する --- */
   const snrDb = 20 * Math.log10((median(voiced.map(f => f.rms)) || thr) / noiseFloor);
   // 粗く3段階（こえの大きさは細かい点差にしない）
   const volScore = snrDb >= st.snrOk ? 100 : snrDb >= st.snrOk - 5 ? 70 : 40;
 
-  /* --- はやさ: 音のかたまり（音節の山）の数 ÷ 時間 ---
-     実際の声は1音節の中でも音量が細かく揺れるので、「前後より大きい点」を
-     すべて拾うと1音節を何度も数えてしまう。直前の谷から十分に立ち上がった
-     山だけを音節とみなす（プロミネンス条件）。 */
-  const env = smooth(frames.map(f => f.rms), 2);
-  const envDb = env.map(v => 20 * Math.log10(v));
-  const minSep = Math.max(1, Math.round(0.12 / dt));   // 山どうしの最小間隔
-  const PROM = 4;                                      // 谷からの立ち上がり(dB)
-  const peakT = [];
-  let valley = envDb[0];
-  for (let i = 2; i < envDb.length - 2; i++){
-    if (envDb[i] < valley) valley = envDb[i];
-    const isMax = envDb[i] >= envDb[i-1] && envDb[i] > envDb[i+1] && envDb[i] > envDb[i-2] && envDb[i] > envDb[i+2];
-    if (isMax && envDb[i] > thrDb && envDb[i] - valley >= PROM){
-      if (!peakT.length || i - peakT[peakT.length-1].i >= minSep){
-        peakT.push({ i, t: frames[i].t });
-        valley = envDb[i];
-      }
-    }
+  /* --- はやさ: 教材ごとの基準と比べる ---
+     波形だけから流暢さを推定するのは実声で機能しなかった（たどたどしい読みでも
+     間やリズムの数値が良い方に出た）。読む文章が決まっていれば「どれだけ時間が
+     かかったか」が最も確かな指標になるので、お手本CDの時間、または文字数と比べる。 */
+  let paceScore = null, timesRef = 0, cpm = 0;
+  if (lesson && lesson.chars > 0) cpm = lesson.chars / (speakDur / 60);
+  if (lesson && lesson.refDur > 0){
+    timesRef = speakDur / lesson.refDur;              // 1.0=お手本と同じ、大きいほど遅い
+    paceScore = plateau(timesRef, st.refLo * 0.65, st.refLo, st.refHi, st.refHi * 1.35);
+  } else if (cpm > 0){
+    paceScore = plateau(cpm, st.cpmLo * 0.5, st.cpmLo, st.cpmHi, st.cpmHi * 1.6);
   }
-  const pace = peakT.length / dur;
-  const paceScore = plateau(pace, st.paceLo * 0.5, st.paceLo, st.paceHi, st.paceHi * 1.7);
 
   /* --- 抑揚: 声の高さのばらつき（半音単位）。単調も過剰も低くなる --- */
   let pitches = voiced.map(f => f.pitch).filter(p => p > 60 && p < 600);
@@ -738,50 +882,20 @@ function score(frames, noiseFloor, dur, st){
     intoScore = plateau(semi, st.semiLo * 0.25, st.semiLo, st.semiHi, st.semiHi * 1.9);
   }
 
-  /* --- スラスラ: 「間の多さ」と「リズムのばらつき」の両方で見る ---
-     たどたどしい読みは、長い間が少なくても 音と音の間隔がバラバラになる。
-     間の量だけでは 一語ずつ細かく詰まる読み方を見のがすため、リズムも測る。 */
-  let pauseTime = 0, run = 0, longPauses = 0, shortPauses = 0;
-  const closeRun = () => {
-    if (run >= 0.30){ pauseTime += run; longPauses++; }
-    else if (run >= 0.15){ shortPauses++; }   // 一瞬の口ごもり（診断用）
-    run = 0;
-  };
-  for (const f of frames){
-    if (f.rms <= thr) run += dt;
-    else closeRun();
-  }
-  closeRun();
-  const pauseRatio = pauseTime / dur;
-  // 句読点や息つぎの間はふつうにあるので、そこまでは満点。多すぎるとつっかえ扱い
-  const pauseScore = pauseRatio <= st.pauseOk ? 100 : plateau(pauseRatio, -1, st.pauseOk, st.pauseOk, st.pauseFail);
-
-  const gaps = [];
-  for (let k = 1; k < peakT.length; k++){
-    const g = peakT[k].t - peakT[k-1].t;
-    if (g < 1.5) gaps.push(g);           // 間をはさんだ所は除いて、音の連なりだけを見る
-  }
-  let cv = 0;
-  if (gaps.length > 5){
-    const m = gaps.reduce((a,b) => a+b, 0) / gaps.length;
-    const sd = Math.sqrt(gaps.reduce((a,b) => a + (b-m)*(b-m), 0) / gaps.length);
-    cv = sd / (m || 1);
-  }
-  const rhythmScore = gaps.length <= 5 ? 100 : plateau(cv, -1, 0, st.rhythmOk, st.rhythmOk * 2.2);
-  const fluScore = pauseScore * 0.6 + rhythmScore * 0.4;
-
   const items = [
-    { key: "vol", label: "こえの 大きさ", score: clampScore(volScore), color: "#4fc3f7" },
-    { key: "pace", label: "はやさ",       score: clampScore(paceScore), color: "#81c784" },
-    { key: "into", label: "よみかた",     score: clampScore(intoScore), color: "#ba68c8" },
-    { key: "flu",  label: "スラスラ",     score: clampScore(fluScore),  color: "#ffd54f" }
+    { key: "vol",  label: "こえの 大きさ", score: clampScore(volScore),  color: "#4fc3f7" },
+    { key: "into", label: "よみかた",      score: clampScore(intoScore), color: "#ba68c8" }
   ];
+  // 教材が選ばれていない（お手本も文字数もない）ときは、はやさを採点しない
+  if (paceScore !== null)
+    items.splice(1, 0, { key: "pace", label: "はやさ", score: clampScore(paceScore), color: "#81c784" });
+
   // 平均だけだと苦手が1つあっても高得点になってしまうので、いちばん低い項目も効かせる
   const mean = items.reduce((a, b) => a + b.score, 0) / items.length;
   const worst = Math.min(...items.map(i => i.score));
   const total = Math.round(mean * 0.65 + worst * 0.35);
 
-  return { total, items, raw: { snrDb, pace, semi, pauseRatio, longPauses, shortPauses, peaks: peakT.length, cv, dur, voicedRatio } };
+  return { total, items, raw: { snrDb, semi, cpm, timesRef, speakDur, dur, voicedRatio } };
 }
 
 function clampScore(s){ return Math.round(Math.min(100, Math.max(30, s))); }
@@ -829,8 +943,17 @@ function renderResult(r){
     box.appendChild(row);
     requestAnimationFrame(() => { row.querySelector(".meter-fill").style.width = it.score + "%"; });
   }
+  const tips = advice(r);
+  // お手本がある教材では、どれだけ時間がかかったかを子どもにも見せる
+  if (r.raw.timesRef){
+    const t = r.raw.timesRef;
+    tips.unshift(t <= 1.1 ? `⏱ お手本と おなじくらいの はやさ！（${t.toFixed(2)}倍）`
+      : `⏱ お手本の ${t.toFixed(2)}倍の 時間が かかったよ`);
+  } else if (r.raw.cpm){
+    tips.unshift(`⏱ 1分あたり ${Math.round(r.raw.cpm)}字の はやさ`);
+  }
   document.getElementById("res-advice").innerHTML =
-    advice(r).map(a => `<div>${a}</div>`).join("");
+    tips.map(a => `<div>${a}</div>`).join("");
 
   if (calibMode){
     document.getElementById("res-title").textContent = "測定けっか（調整テスト）";
@@ -850,22 +973,14 @@ function renderRaw(r){
   const s = meta.settings, r1 = (x) => Math.round(x * 10) / 10;
   document.getElementById("res-raw-table").innerHTML = `
     <tr><th>こえの大きさ（SNR）</th><td>${w.snrDb.toFixed(1)} dB</td><td class="note">${s.snrOk}以上=満点 / ${s.snrOk-5}未満=低</td></tr>
-    <tr><th>はやさ</th><td>${w.pace.toFixed(2)} かたまり/秒</td><td class="note">いまの適正帯 ${s.paceLo}〜${s.paceHi}</td></tr>
     <tr><th>抑揚のはば</th><td>${w.semi.toFixed(2)} 半音</td><td class="note">いまの適正帯 ${s.semiLo}〜${s.semiHi}</td></tr>
-    <tr><th>間の割合</th><td>${(w.pauseRatio*100).toFixed(0)} %（${w.longPauses}回）</td><td class="note">${Math.round(s.pauseOk*100)}%以下=満点</td></tr>
-    <tr><th>リズムのばらつき</th><td>${w.cv.toFixed(2)}</td><td class="note">${s.rhythmOk}以下=満点（大きいほど たどたどしい）</td></tr>
-    <tr><th>音のかたまり数</th><td>${w.peaks} 個</td><td class="note">口ごもり(0.15〜0.3秒) ${w.shortPauses}回</td></tr>
-    <tr><th>読んだ時間</th><td>${w.dur.toFixed(1)} 秒</td><td class="note">声が出ていた割合 ${(w.voicedRatio*100).toFixed(0)}%</td></tr>`;
+    <tr><th>読んでいた時間</th><td>${w.speakDur.toFixed(1)} 秒</td><td class="note">前後の無音をのぞいた長さ（録音 ${w.dur.toFixed(1)}秒）</td></tr>
+    <tr><th>声が出ていた割合</th><td>${(w.voicedRatio*100).toFixed(0)} %</td><td class="note">—</td></tr>`;
 
   // 先生の「ふつうの音読」が満点になるよう、その値を中心に余裕をとった帯を提案する
   const sug = {
-    paceLo: Math.max(0.5, r1(w.pace * 0.70)),
-    paceHi: r1(w.pace * 1.35),
     semiLo: Math.max(0.5, r1(w.semi * 0.55)),
     semiHi: r1(Math.max(w.semi * 1.7, w.semi + 2)),
-    pauseOk: Math.max(0.15, Math.round(w.pauseRatio * 1.2 * 100) / 100),
-    pauseFail: Math.max(0.42, Math.round(w.pauseRatio * 2.2 * 100) / 100),
-    rhythmOk: Math.max(0.35, r1(w.cv * 1.2)),
     snrOk: Math.max(10, r1(w.snrDb - 1.5))
   };
   window.__suggest = sug;
@@ -879,7 +994,8 @@ function renderRaw(r){
     </p>
     <button class="btn btn-gold btn-sm" onclick="applySuggest()">この読み方を「ちょうど良い」の基準にする</button>
     <p class="note" style="margin-top:10px">
-      → はやさ ${sug.paceLo}〜${sug.paceHi} ／ 抑揚 ${sug.semiLo}〜${sug.semiHi} ／ 間 ${Math.round(sug.pauseOk*100)}%まで ／ リズム ${sug.rhythmOk}まで ／ こえ ${sug.snrOk}dB以上
+      → 抑揚 ${sug.semiLo}〜${sug.semiHi} ／ こえ ${sug.snrOk}dB以上
+      <br>※「はやさ」は教材ごとのお手本（または文字数）で決まるため、ここでは変わりません。
     </p>`;
 }
 
@@ -900,12 +1016,12 @@ window.applySuggest = applySuggest;
 
 function fillSettingFields(){
   const s = meta.settings;
-  document.getElementById("t-set-lo").value = s.paceLo;
-  document.getElementById("t-set-hi").value = s.paceHi;
+  document.getElementById("t-set-lo").value = s.refLo;
+  document.getElementById("t-set-hi").value = s.refHi;
+  document.getElementById("t-set-cpmlo").value = s.cpmLo;
+  document.getElementById("t-set-cpmhi").value = s.cpmHi;
   document.getElementById("t-set-semilo").value = s.semiLo;
   document.getElementById("t-set-semihi").value = s.semiHi;
-  document.getElementById("t-set-pauseok").value = Math.round(s.pauseOk * 100);
-  document.getElementById("t-set-rhythmok").value = s.rhythmOk;
   document.getElementById("t-set-snrok").value = s.snrOk;
 }
 
@@ -917,9 +1033,12 @@ function advice(r){
   const low = r.items.filter(i => i.score < 85).sort((a,b) => a.score - b.score).slice(0, 2);
   for (const it of low){
     if (it.key === "vol") out.push(r.raw.snrDb < 12 ? "🔉 もう少し 大きな こえで よもう" : "🔉 はっきりした こえに して みよう");
-    if (it.key === "pace") out.push(r.raw.pace > meta.settings.paceHi ? "🐢 少し ゆっくり よんで みよう" : "🐇 もう少し テンポよく よんで みよう");
+    if (it.key === "pace"){
+      // お手本より時間がかかった＝つっかえている / 短すぎる＝読みとばしや早口
+      const slow = r.raw.timesRef ? r.raw.timesRef > meta.settings.refHi : r.raw.cpm < meta.settings.cpmLo;
+      out.push(slow ? "📖 とちゅうで つまらないよう れんしゅう しよう" : "🐢 少し ゆっくり よんで みよう");
+    }
     if (it.key === "into") out.push(r.raw.semi < meta.settings.semiLo ? "🎵 きもちを こめて 読むと もっと よくなるよ" : "🎵 おちついた よみかたに して みよう");
-    if (it.key === "flu") out.push("📖 とちゅうで とまらないよう れんしゅう しよう");
   }
   if (out.length === 1) out.push("✨ かんぺき！ すばらしい 音読でした！");
   return out;
@@ -928,7 +1047,9 @@ function advice(r){
 /* ========== 保存 ========== */
 async function saveResult(r){
   r.isBest = r.total > (me.best || 0);
-  const hist = (me.history || []).concat([{ score: r.total, at: Date.now() }]).slice(-20);
+  const hist = (me.history || [])
+    .concat([{ score: r.total, at: Date.now(), lesson: pickedLesson ? pickedLesson.name : "" }])
+    .slice(-20);
   const patch = {
     plays: (me.plays || 0) + 1,
     lastAt: Date.now(),
@@ -982,12 +1103,38 @@ async function loadTeacher(){
         </tr>`).join("")}</tbody></table>
       <p class="note" style="margin-top:10px">PIN初期化 → その子は次回 ${INITIAL_PIN} で入り、新しい4けたを決め直します。</p>`;
     fillSettingFields();
+    await loadLessons();
+    renderLessonList();
   } catch(e){
     wrap.className = "msg";
     wrap.textContent = "読み込めませんでした: " + (e.code || e.message);
   }
 }
 window.loadTeacher = loadTeacher;
+
+function renderLessonList(){
+  const box = document.getElementById("t-les-list");
+  if (lessonsError){
+    box.innerHTML = `<p class="msg">${lessonsError}</p>`;
+    return;
+  }
+  if (!lessons.length){
+    box.innerHTML = `<p class="note">まだ教材がありません。登録すると「はやさ」を採点できるようになります。</p>`;
+    return;
+  }
+  box.innerHTML = `<table><thead><tr>
+      <th>教材</th><th>文字数</th><th>お手本</th><th>操作</th>
+    </tr></thead><tbody>${lessons.map(l => `
+      <tr>
+        <td>${l.name}</td>
+        <td>${l.chars ? l.chars + "字" : "—"}</td>
+        <td>${l.refDur ? Math.round(l.refDur) + "秒" + (l.chars ? `<br><span class="note">${Math.round(l.chars/(l.refDur/60))}字/分</span>` : "") : "—"}</td>
+        <td><div class="t-actions">
+          <button class="btn btn-green btn-xs" onclick="startRefRec('${l.id}')">🎧 お手本を聴く</button>
+          <button class="btn btn-red btn-xs" onclick="delLesson('${l.id}')">削除</button>
+        </div></td>
+      </tr>`).join("")}</tbody></table>`;
+}
 
 async function resetPin(no){
   if (!confirm(`${no}番のパスワードを ${INITIAL_PIN} に戻しますか？`)) return;
@@ -1032,17 +1179,15 @@ async function saveSettings(){
   const hi = Number(document.getElementById("t-set-hi").value);
   const slo = Number(document.getElementById("t-set-semilo").value);
   const shi = Number(document.getElementById("t-set-semihi").value);
-  const pok = Number(document.getElementById("t-set-pauseok").value) / 100;
-  const rok = Number(document.getElementById("t-set-rhythmok").value);
+  const clo = Number(document.getElementById("t-set-cpmlo").value);
+  const chi = Number(document.getElementById("t-set-cpmhi").value);
   const nok = Number(document.getElementById("t-set-snrok").value);
-  if (!(lo > 0 && hi > lo)){ tmsg("はやさは 下限 < 上限 にしてください"); return; }
+  if (!(lo > 0 && hi > lo)){ tmsg("お手本との倍率は 速い側 < 遅い側 にしてください"); return; }
+  if (!(clo > 0 && chi > clo)){ tmsg("字/分は 下限 < 上限 にしてください"); return; }
   if (!(slo > 0 && shi > slo)){ tmsg("抑揚のはばは 下限 < 上限 にしてください"); return; }
-  if (!(pok > 0 && pok < 1)){ tmsg("間の上限は 5〜60 の範囲で入れてください"); return; }
-  if (!(rok > 0.1)){ tmsg("リズムのばらつきは 0.2以上で入れてください"); return; }
   if (!(nok >= 6)){ tmsg("こえの大きさは 6dB以上で入れてください"); return; }
   meta.settings = Object.assign({}, meta.settings, {
-    paceLo: lo, paceHi: hi, semiLo: slo, semiHi: shi,
-    pauseOk: pok, pauseFail: Math.max(pok * 2.2, 0.45), rhythmOk: rok, snrOk: nok
+    refLo: lo, refHi: hi, cpmLo: clo, cpmHi: chi, semiLo: slo, semiHi: shi, snrOk: nok
   });
   await updateDoc(META(), { settings: meta.settings });
   tmsg("設定を保存しました");
