@@ -278,6 +278,11 @@
       <button class="btn btn-green btn-sm" onclick="addLesson()">教材を追加</button>
     </div>
     <div id="t-les-list"></div>
+    <input type="file" id="t-ref-file" accept="audio/*" style="display:none" onchange="onRefFile(event)">
+    <p class="note" style="margin-top:10px">
+      お手本は<b>📁 音声ファイル</b>からの登録がおすすめです（反響が入らず、何度やっても同じ結果になります）。
+      CDしかない場合は <b>🎧 CDを聴かせる</b> でスピーカー再生を拾えます。どちらも<b>音声は保存しません</b>。
+    </p>
   </div>
   <div class="panel">
     <h3>マイクの調整テスト</h3>
@@ -676,7 +681,7 @@ function loop(){
   } else {
     const t = (performance.now() - rec.t0) / 1000;
     const pitch = rms > rec.noiseFloor * 3 ? detectPitch(audio.buf, audio.ctx.sampleRate) : 0;
-    rec.frames.push({ t, rms, pitch, band: melBands(audio) });
+    rec.frames.push({ t, rms, pitch, band: melBandsFromBuf(audio.buf, audio.ctx.sampleRate) });
     // 表示（ノイズフロアを0、その30倍を満タンの目安に）
     const rel = Math.min(1, Math.max(0, Math.log10(rms / rec.noiseFloor) / Math.log10(30)));
     document.getElementById("vol-fill").style.width = (rel * 100) + "%";
@@ -690,17 +695,56 @@ function loop(){
    お手本（大人）と児童の声を対応づけるための特徴量。帯ごとの平均を後で引く
    （ケプストラム平均正規化と同じ考え方）ことで、声質の違いをかなり打ち消せる。 */
 const MEL_EDGES = [200, 400, 650, 950, 1350, 1900, 2700, 3800, 5200];
-function melBands(a){
-  if (!a.freq) a.freq = new Float32Array(a.analyser.frequencyBinCount);
-  a.analyser.getFloatFrequencyData(a.freq);           // dB
-  const nyq = a.ctx.sampleRate / 2, n = a.freq.length;
+
+/* FFT（基数2・その場計算）。マイク入力と音声ファイルを“まったく同じ手順”で
+   解析するために自前で持つ。別々の方法で計算すると特徴量が揃わず、
+   お手本との対応づけが崩れてしまう。 */
+function fft(re, im){
+  const n = re.length;
+  for (let i = 1, j = 0; i < n; i++){
+    let bit = n >> 1;
+    for (; j & bit; bit >>= 1) j ^= bit;
+    j ^= bit;
+    if (i < j){
+      let t = re[i]; re[i] = re[j]; re[j] = t;
+      t = im[i]; im[i] = im[j]; im[j] = t;
+    }
+  }
+  for (let len = 2; len <= n; len <<= 1){
+    const ang = -2 * Math.PI / len, wr = Math.cos(ang), wi = Math.sin(ang);
+    const half = len >> 1;
+    for (let i = 0; i < n; i += len){
+      let cr = 1, ci = 0;
+      for (let k = 0; k < half; k++){
+        const ur = re[i+k], ui = im[i+k];
+        const xr = re[i+k+half], xi = im[i+k+half];
+        const vr = xr * cr - xi * ci, vi = xr * ci + xi * cr;
+        re[i+k] = ur + vr; im[i+k] = ui + vi;
+        re[i+k+half] = ur - vr; im[i+k+half] = ui - vi;
+        const ncr = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = ncr;
+      }
+    }
+  }
+}
+
+let _fftRe = null, _fftIm = null, _win = null;
+// 波形から、声のスペクトルを8本の帯に粗くまとめる（マイク・ファイル共通）
+function melBandsFromBuf(buf, sampleRate){
+  const n = buf.length;
+  if (!_fftRe || _fftRe.length !== n){
+    _fftRe = new Float64Array(n); _fftIm = new Float64Array(n); _win = new Float64Array(n);
+    for (let i = 0; i < n; i++) _win[i] = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (n - 1)); // ハン窓
+  }
+  for (let i = 0; i < n; i++){ _fftRe[i] = buf[i] * _win[i]; _fftIm[i] = 0; }
+  fft(_fftRe, _fftIm);
+  const nyq = sampleRate / 2, half = n >> 1;
   const out = new Array(MEL_EDGES.length - 1);
   for (let b = 0; b < out.length; b++){
-    const i0 = Math.max(0, Math.floor(MEL_EDGES[b] / nyq * n));
-    const i1 = Math.min(n - 1, Math.ceil(MEL_EDGES[b+1] / nyq * n));
+    const i0 = Math.max(1, Math.floor(MEL_EDGES[b] / nyq * half));
+    const i1 = Math.min(half - 1, Math.ceil(MEL_EDGES[b+1] / nyq * half));
     let s = 0, c = 0;
-    for (let i = i0; i <= i1; i++){ s += a.freq[i]; c++; }
-    out[b] = c ? s / c : -120;
+    for (let i = i0; i <= i1; i++){ s += _fftRe[i]*_fftRe[i] + _fftIm[i]*_fftIm[i]; c++; }
+    out[b] = c ? 10 * Math.log10(s / c + 1e-20) : -120;
   }
   return out;
 }
@@ -1051,6 +1095,80 @@ function unpackFeat(b64, fps){
   }
   return { fps: fps || FEAT_FPS, n, band, energy, semi };
 }
+
+/* 音声ファイル（mp3/m4a/wav など）を、マイク録音とまったく同じ形式に解析する。
+   スピーカーで鳴らしてマイクで拾う方法と違い、部屋の反響が入らず再現性が高い。 */
+const FILE_FPS = 60;
+async function analyzeAudioFile(file){
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  const ab = await file.arrayBuffer();
+  const audioBuf = await ctx.decodeAudioData(ab);
+  const sr = audioBuf.sampleRate;
+  // モノラルに混ぜる
+  const len = audioBuf.length, mono = new Float32Array(len);
+  for (let c = 0; c < audioBuf.numberOfChannels; c++){
+    const d = audioBuf.getChannelData(c);
+    for (let i = 0; i < len; i++) mono[i] += d[i] / audioBuf.numberOfChannels;
+  }
+  ctx.close();
+
+  const N = 2048, hop = Math.round(sr / FILE_FPS);
+  const win = new Float32Array(N);
+  const frames = [];
+  for (let s = 0; s + N <= len; s += hop){
+    win.set(mono.subarray(s, s + N));
+    const rms = calcRms(win);
+    frames.push({ t: s / sr, rms, pitch: 0, band: melBandsFromBuf(win, sr), _i: s });
+  }
+  if (!frames.length) throw new Error("音声が短すぎます");
+  // 無音の水準を、静かな部分（下位5%）から決める
+  const sorted = frames.map(f => f.rms).sort((a,b) => a-b);
+  const noiseFloor = Math.max(1e-6, sorted[Math.floor(sorted.length * 0.05)]);
+  // 声が出ている所だけ高さを測る（全フレームでやると無駄に重い）
+  for (const f of frames){
+    if (f.rms > noiseFloor * 3){
+      win.set(mono.subarray(f._i, f._i + N));
+      f.pitch = detectPitch(win, sr);
+    }
+    delete f._i;
+  }
+  return { frames, noiseFloor, sampleRate: sr, duration: audioBuf.duration };
+}
+
+// マイク録音・音声ファイルのどちらからでも、お手本として教材に登録する
+async function registerReference(lessonId, frames, noiseFloor){
+  refTargetId = lessonId;
+  lastFeat = buildFeatures(frames, noiseFloor);
+  const dur = frames[frames.length - 1].t;
+  const r = score(frames, noiseFloor, dur, meta.settings, null);
+  await saveReference(r);
+}
+
+async function pickRefFile(id){
+  const input = document.getElementById("t-ref-file");
+  input.dataset.lesson = id;
+  input.value = "";
+  input.click();
+}
+window.pickRefFile = pickRefFile;
+
+async function onRefFile(ev){
+  const file = ev.target.files && ev.target.files[0];
+  const id = ev.target.dataset.lesson;
+  if (!file || !id) return;
+  const l = lessons.find(x => x.id === id);
+  tmsg(`「${file.name}」を解析中…`);
+  try {
+    const a = await analyzeAudioFile(file);
+    await registerReference(id, a.frames, a.noiseFloor);
+    await loadLessons();
+    loadTeacher();
+    tmsg(`「${l ? l.name : id}」のお手本を登録しました（${a.duration.toFixed(1)}秒）`);
+  } catch(e){
+    tmsg("読み込めませんでした: " + (e.message || e.code));
+  }
+}
+window.onRefFile = onRefFile;
 
 async function saveReference(r){
   const l = lessons.find(x => x.id === refTargetId);
@@ -1430,7 +1548,8 @@ function renderLessonList(){
         <td>${l.chars ? l.chars + "字" : "—"}</td>
         <td>${l.refDur ? Math.round(l.refDur) + "秒" + (l.chars ? `<br><span class="note">${Math.round(l.chars/(l.refDur/60))}字/分</span>` : "") : "—"}</td>
         <td><div class="t-actions">
-          <button class="btn btn-green btn-xs" onclick="startRefRec('${l.id}')">🎧 お手本を聴く</button>
+          <button class="btn btn-gold btn-xs" onclick="pickRefFile('${l.id}')">📁 音声ファイル</button>
+          <button class="btn btn-green btn-xs" onclick="startRefRec('${l.id}')">🎧 CDを聴かせる</button>
           ${l.refFeat ? `<button class="btn btn-blue btn-xs" onclick="startAlignTest('${l.id}')">🔍 対応づけを試す</button>` : ""}
           <button class="btn btn-red btn-xs" onclick="delLesson('${l.id}')">削除</button>
         </div></td>
