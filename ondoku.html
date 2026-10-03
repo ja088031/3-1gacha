@@ -264,7 +264,11 @@
     </p>
     <div class="field">
       <label>教材名</label>
-      <input type="text" id="t-les-name" placeholder="例: 春風をたどって">
+      <input type="text" id="t-les-group" placeholder="例: ちいちゃんのかげおくり">
+    </div>
+    <div class="field">
+      <label>場面（任意）</label>
+      <input type="text" id="t-les-name" placeholder="例: 1場面　※分けないときは空欄">
     </div>
     <div class="field" style="align-items:flex-start">
       <label>本文を貼り付け</label>
@@ -386,7 +390,9 @@ async function loadLessons(){
     const snap = await getDocs(LESS());
     lessons = [];
     snap.forEach(d => lessons.push(d.data()));
-    lessons.sort((a, b) => (a.order || 0) - (b.order || 0));
+    lessons.sort((a, b) =>
+      (a.group || a.name || "").localeCompare(b.group || b.name || "", "ja") ||
+      (a.order || 0) - (b.order || 0));
     lessonsError = "";
   } catch(e){
     lessons = [];
@@ -572,6 +578,12 @@ function openHome(){
 }
 window.openHome = openHome;
 
+// 「教材名 場面名」の形で表示する（場面を分けていなければ教材名だけ）
+function lessonLabel(l){
+  if (!l) return "";
+  return l.group && l.name !== l.group ? `${l.group} ${l.name}` : (l.group || l.name);
+}
+
 // 児童が読む教材を選ぶ。先生が登録していなければ「じゆう音読」だけになる。
 function renderLessonPicker(){
   const box = document.getElementById("home-lessons");
@@ -579,13 +591,24 @@ function renderLessonPicker(){
   const opts = lessons.concat([{ id: "", name: "じゆうに よむ（はやさは はかりません）" }]);
   if (pickedLesson && !lessons.some(l => l.id === pickedLesson.id)) pickedLesson = null;
   if (!pickedLesson) pickedLesson = lessons[0] || null;
+  let lastGroup = null;
   for (const l of opts){
+    // 教材名が変わったら見出しを出す（場面が並んでも分かるように）
+    const g = l.id ? (l.group || l.name) : null;
+    if (g && g !== lastGroup){
+      lastGroup = g;
+      const h = document.createElement("div");
+      h.style.cssText = "color:#ffd700;font-weight:bold;margin:10px 2px 2px;font-size:1.05em";
+      h.textContent = g;
+      box.appendChild(h);
+    }
     const b = document.createElement("button");
     b.className = "no-btn";
     b.style.cssText = "aspect-ratio:auto;padding:12px;font-size:1.05em;text-align:left";
     const on = (pickedLesson ? pickedLesson.id : "") === l.id;
     if (on) b.style.background = "rgba(255,215,0,0.35)";
-    b.innerHTML = (on ? "✅ " : "　") + l.name +
+    const label = l.id ? (l.group && l.name !== l.group ? l.name : "ぜんぶ") : l.name;
+    b.innerHTML = (on ? "✅ " : "　") + label +
       (l.refDur ? `<span class="mark">お手本 ${Math.round(l.refDur)}秒</span>` : "");
     b.onclick = () => { pickedLesson = l.id ? l : null; renderLessonPicker(); };
     box.appendChild(b);
@@ -652,7 +675,7 @@ async function startRecord(mode, lessonId){
     document.getElementById("rec-lead").textContent =
       recMode === "ref"   ? "CDを再生してください。終わったら下のボタンを押します" :
       recMode === "align" ? "お手本と同じ範囲を読んでください（わざと詰まってもOK）" :
-      (pickedLesson ? `「${pickedLesson.name}」を 読んでね！` : "きょうかしょを 読んでね！");
+      (pickedLesson ? `「${lessonLabel(pickedLesson)}」を 読んでね！` : "きょうかしょを 読んでね！");
     document.getElementById("rec-stop").disabled = false;
   }, CALIB_SEC * 1000);
 }
@@ -981,7 +1004,7 @@ function renderAlign(){
     return;
   }
   const { al, child, ref, lesson } = lastAlign;
-  document.getElementById("al-lesson").textContent = lesson.name;
+  document.getElementById("al-lesson").textContent = lessonLabel(lesson);
 
   const curve = stretchCurve(al, child, ref);
   const ratios = curve.map(c => c.ratio).filter(r => r > 0 && isFinite(r));
@@ -1163,7 +1186,7 @@ async function onRefFile(ev){
     await registerReference(id, a.frames, a.noiseFloor);
     await loadLessons();
     loadTeacher();
-    tmsg(`「${l ? l.name : id}」のお手本を登録しました（${a.duration.toFixed(1)}秒）`);
+    tmsg(`「${l ? lessonLabel(l) : id}」のお手本を登録しました（${a.duration.toFixed(1)}秒）`);
   } catch(e){
     tmsg("読み込めませんでした: " + (e.message || e.code));
   }
@@ -1183,7 +1206,7 @@ async function saveReference(r){
     await updateDoc(LES(l.id), patch);
     Object.assign(l, patch);
     notice("お手本を とうろくしました", [
-      `「${l.name}」のお手本：${patch.refDur} 秒`,
+      `「${lessonLabel(l)}」のお手本：${patch.refDur} 秒`,
       l.chars ? `1分あたり ${Math.round(l.chars / (patch.refDur/60))} 字のペースです` : "",
       `照合用データ ${Math.round(feat.length/1024)} KB を保存しました`,
       "※ 音声は保存していません（声の高さと音量の数値列だけ）"
@@ -1199,17 +1222,18 @@ async function addLesson(){
     ? "Firestoreのルールで lessons が許可されていません" : "追加できませんでした: " + (e.code || e.message)); }
 }
 async function addLessonInner(){
+  const group = document.getElementById("t-les-group").value.trim();
   const name = document.getElementById("t-les-name").value.trim();
   const text = document.getElementById("t-les-text").value;
-  if (!name){ tmsg("教材名を入れてください"); return; }
+  if (!group){ tmsg("教材名を入れてください"); return; }
   // 本文は文字数を数えるだけで保存しない
   const chars = text.replace(/\s+/g, "").length;
   const id = "L" + Date.now();
-  await setDoc(LES(id), { id, name, chars, refDur: 0, refSemi: 0, order: lessons.length });
+  await setDoc(LES(id), { id, group, name: name || group, chars, refDur: 0, refSemi: 0, order: lessons.length });
   document.getElementById("t-les-name").value = "";
   document.getElementById("t-les-text").value = "";
   updateCharCount();
-  tmsg(`「${name}」を追加しました（${chars}字）`);
+  tmsg(`「${group}${name ? " " + name : ""}」を追加しました（${chars}字）`);
   await loadLessons();
   loadTeacher();
 }
@@ -1217,7 +1241,7 @@ window.addLesson = addLesson;
 
 async function delLesson(id){
   const l = lessons.find(x => x.id === id);
-  if (!confirm(`教材「${l ? l.name : id}」を削除しますか？`)) return;
+  if (!confirm(`教材「${l ? lessonLabel(l) : id}」を削除しますか？`)) return;
   await deleteDoc(LES(id));
   await loadLessons();
   tmsg("削除しました");
@@ -1466,7 +1490,7 @@ function advice(r){
 async function saveResult(r){
   r.isBest = r.total > (me.best || 0);
   const hist = (me.history || [])
-    .concat([{ score: r.total, at: Date.now(), lesson: pickedLesson ? pickedLesson.name : "" }])
+    .concat([{ score: r.total, at: Date.now(), lesson: pickedLesson ? lessonLabel(pickedLesson) : "" }])
     .slice(-20);
   const patch = {
     plays: (me.plays || 0) + 1,
@@ -1540,11 +1564,17 @@ function renderLessonList(){
     box.innerHTML = `<p class="note">まだ教材がありません。登録すると「はやさ」を採点できるようになります。</p>`;
     return;
   }
+  // 教材名ごとに区切って表示する（場面が増えても見失わないように）
+  let lastGroup = null;
   box.innerHTML = `<table><thead><tr>
-      <th>教材</th><th>文字数</th><th>お手本</th><th>操作</th>
-    </tr></thead><tbody>${lessons.map(l => `
+      <th>場面</th><th>文字数</th><th>お手本</th><th>操作</th>
+    </tr></thead><tbody>${lessons.map(l => {
+      const g = l.group || l.name;
+      const head = g !== lastGroup ? (lastGroup = g,
+        `<tr><td colspan="4" style="color:#ffd700;font-weight:bold;padding-top:14px">${g}</td></tr>`) : "";
+      return head + `
       <tr>
-        <td>${l.name}</td>
+        <td>${l.group && l.name !== l.group ? l.name : "（全体）"}</td>
         <td>${l.chars ? l.chars + "字" : "—"}</td>
         <td>${l.refDur ? Math.round(l.refDur) + "秒" + (l.chars ? `<br><span class="note">${Math.round(l.chars/(l.refDur/60))}字/分</span>` : "") : "—"}</td>
         <td><div class="t-actions">
@@ -1553,7 +1583,8 @@ function renderLessonList(){
           ${l.refFeat ? `<button class="btn btn-blue btn-xs" onclick="startAlignTest('${l.id}')">🔍 対応づけを試す</button>` : ""}
           <button class="btn btn-red btn-xs" onclick="delLesson('${l.id}')">削除</button>
         </div></td>
-      </tr>`).join("")}</tbody></table>`;
+      </tr>`;
+    }).join("")}</tbody></table>`;
 }
 
 async function resetPin(no){
