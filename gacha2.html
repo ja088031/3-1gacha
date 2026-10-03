@@ -16,7 +16,7 @@
     }
 
     /* ========== SCREENS ========== */
-    .screen { display: none; min-height: 100vh; padding: 20px; }
+    .screen { display: none; min-height: 100vh; padding: 20px 20px 48px; }
     .screen.active { display: flex; flex-direction: column; align-items: center; }
 
     /* ========== TOP SCREEN ========== */
@@ -301,14 +301,25 @@
       color: #888;
     }
 
-    /* ========== SHARED PAGE BACKGROUND ========== */
-    #screen-student-select,
-    #screen-student-home,
-    #screen-collection {
+    /* ========== SHARED PAGE BACKGROUND ==========
+       背景を画面に固定して敷く。ページが縦に長くても帯状にならず、
+       スクロールしても途中で切れない。
+       画像には「3年1組ガチャ」の文字が入っていて見出しと競合するので、
+       ぼかして暗くし、雰囲気だけを残す。 */
+    #screen-student-select::before,
+    #screen-student-home::before,
+    #screen-collection::before {
+      content: '';
+      position: fixed;
+      inset: 0;
       background-image: url('images/背景.png');
-      background-size: contain;
-      background-repeat: no-repeat;
+      background-size: cover;
       background-position: center;
+      background-repeat: no-repeat;
+      filter: blur(11px) brightness(0.3) saturate(1.15);
+      transform: scale(1.04);   /* ぼかしで出る端のにじみを隠す */
+      z-index: -1;
+      pointer-events: none;
     }
 
     /* ========== STUDENT SELECT SCREEN ========== */
