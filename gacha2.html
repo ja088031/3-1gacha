@@ -832,10 +832,19 @@
         児童がガチャを<b>引ける</b>時間帯です（図鑑はいつでも見られます）。<br>
         判定にはサーバーの時刻を使うので、端末の時計を変えても回避できません。
       </p>
+      <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:0.95em">
+        <input type="checkbox" id="block-weekends" style="width:auto;margin:0" onchange="saveWindows()">
+        土曜・日曜は引けないようにする
+      </label>
+      <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:0.95em">
+        <input type="checkbox" id="block-holidays" style="width:auto;margin:0" onchange="saveWindows()">
+        祝日は引けないようにする（振替休日・国民の休日を含む）
+      </label>
       <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:0.95em">
         <input type="checkbox" id="always-open" style="width:auto;margin:0" onchange="saveWindows()">
-        時間帯を無視して、いつでも引けるようにする
+        上の設定をすべて無視して、いつでも引けるようにする
       </label>
+      <p id="today-status" style="font-size:0.9em;margin-bottom:12px"></p>
       <div id="window-list"></div>
       <button class="btn btn-green btn-sm" style="margin-top:10px" onclick="addWindow()">＋ 時間帯を追加</button>
       <p id="window-msg" style="margin-top:8px;font-size:0.9em;min-height:1.2em"></p>
@@ -1032,6 +1041,8 @@ function defaultMeta() {
     teacherPin: DEFAULT_TEACHER_PIN,
     chars: [],
     alwaysOpen: false,
+    blockWeekends: true,
+    blockHolidays: true,
     windows: [
       { label: '中休み', start: '10:25', end: '10:45' },
       { label: '昼休み', start: '13:05', end: '13:30' }
@@ -1096,24 +1107,144 @@ function toMinutes(hhmm) {
   return Number(m[1]) * 60 + Number(m[2]);
 }
 
-/* サーバー時刻(Date)を日本時間の「0時からの分」に直す。
+/* サーバー時刻(Date)を日本時間に直す。
    端末のタイムゾーン設定を変えられても影響を受けないようにするため、
-   UTCミリ秒から +9時間 で計算する。 */
+   UTCミリ秒から +9時間 して UTC系のメソッドで読む。 */
+function toJst(date) {
+  return new Date(date.getTime() + 9 * 60 * 60 * 1000);
+}
 function jstMinutes(date) {
-  const jst = new Date(date.getTime() + 9 * 60 * 60 * 1000);
-  return jst.getUTCHours() * 60 + jst.getUTCMinutes();
+  const j = toJst(date);
+  return j.getUTCHours() * 60 + j.getUTCMinutes();
+}
+
+/* ========== 日本の祝日判定 ==========
+   現行の祝日法にもとづく。2023年以降を想定（五輪で移動した2020〜2021年の
+   特例は入れていない）。春分・秋分は1980〜2099年に有効な近似式。 */
+const DOW_JA = ['日', '月', '火', '水', '木', '金', '土'];
+
+function nthMonday(y, m, nth) {
+  // その月の1日の曜日から、第nth月曜の日付を求める
+  const first = new Date(Date.UTC(y, m - 1, 1)).getUTCDay();
+  return 1 + ((8 - first) % 7) + (nth - 1) * 7;
+}
+function vernalEquinox(y) {   // 春分の日
+  return Math.floor(20.8431 + 0.242194 * (y - 1980) - Math.floor((y - 1980) / 4));
+}
+function autumnEquinox(y) {   // 秋分の日
+  return Math.floor(23.2488 + 0.242194 * (y - 1980) - Math.floor((y - 1980) / 4));
+}
+
+/* 法律で日付が決まっている祝日（振替休日・国民の休日は含まない） */
+function baseHolidayName(y, m, d) {
+  switch (m) {
+    case 1:
+      if (d === 1) return '元日';
+      if (d === nthMonday(y, 1, 2)) return '成人の日';
+      break;
+    case 2:
+      if (d === 11) return '建国記念の日';
+      if (d === 23 && y >= 2020) return '天皇誕生日';
+      break;
+    case 3:
+      if (d === vernalEquinox(y)) return '春分の日';
+      break;
+    case 4:
+      if (d === 29) return '昭和の日';
+      break;
+    case 5:
+      if (d === 3) return '憲法記念日';
+      if (d === 4) return 'みどりの日';
+      if (d === 5) return 'こどもの日';
+      break;
+    case 7:
+      if (d === nthMonday(y, 7, 3)) return '海の日';
+      break;
+    case 8:
+      if (d === 11) return '山の日';
+      break;
+    case 9:
+      if (d === nthMonday(y, 9, 3)) return '敬老の日';
+      if (d === autumnEquinox(y)) return '秋分の日';
+      break;
+    case 10:
+      if (d === nthMonday(y, 10, 2)) return 'スポーツの日';
+      break;
+    case 11:
+      if (d === 3) return '文化の日';
+      if (d === 23) return '勤労感謝の日';
+      break;
+    case 12:
+      if (d === 23 && y <= 2018) return '天皇誕生日';
+      break;
+  }
+  return null;
+}
+
+function isBaseHoliday(dt) {
+  return baseHolidayName(dt.getUTCFullYear(), dt.getUTCMonth() + 1, dt.getUTCDate()) !== null;
+}
+
+/* 振替休日・国民の休日まで含めた祝日判定。引数は toJst() したDate */
+function holidayName(jst) {
+  const base = baseHolidayName(jst.getUTCFullYear(), jst.getUTCMonth() + 1, jst.getUTCDate());
+  if (base) return base;
+
+  // 振替休日：さかのぼって祝日が続く間に「日曜の祝日」があれば振替
+  const t = new Date(jst.getTime());
+  for (let i = 0; i < 7; i++) {
+    t.setUTCDate(t.getUTCDate() - 1);
+    if (!isBaseHoliday(t)) break;
+    if (t.getUTCDay() === 0) return '振替休日';
+  }
+
+  // 国民の休日：前後が祝日に挟まれた平日
+  if (jst.getUTCDay() !== 0) {
+    const prev = new Date(jst.getTime()); prev.setUTCDate(prev.getUTCDate() - 1);
+    const next = new Date(jst.getTime()); next.setUTCDate(next.getUTCDate() + 1);
+    if (isBaseHoliday(prev) && isBaseHoliday(next)) return '国民の休日';
+  }
+  return null;
 }
 
 function windowState(now) {
   if (gmeta.alwaysOpen) return { open: true };
+
+  const jst = toJst(now);
+  const dow = jst.getUTCDay();   // 0=日 … 6=土
+
+  // 土日
+  if (gmeta.blockWeekends !== false && (dow === 0 || dow === 6)) {
+    return { open: false, reason: 'weekend', dow };
+  }
+  // 祝日（振替休日・国民の休日を含む）
+  if (gmeta.blockHolidays !== false) {
+    const h = holidayName(jst);
+    if (h) return { open: false, reason: 'holiday', holiday: h };
+  }
+
   const wins = (gmeta.windows || []).filter(w => toMinutes(w.start) !== null && toMinutes(w.end) !== null);
-  if (wins.length === 0) return { open: true };   // 未設定ならいつでも可
+  if (wins.length === 0) return { open: true };   // 時間帯未設定ならいつでも可
   const cur = jstMinutes(now);
   for (const w of wins) {
     const s = toMinutes(w.start), e = toMinutes(w.end);
     if (s <= cur && cur < e) return { open: true, label: w.label };
   }
-  return { open: false, wins };
+  return { open: false, reason: 'time', wins };
+}
+
+/* 引けない理由を児童向けの文章にする */
+function closedMessage(st) {
+  if (st.reason === 'weekend') {
+    return `きょうは ${DOW_JA[st.dow]}ようび なので ガチャは ひけません。<br>` +
+      '<span style="font-size:0.9em;color:#fff">がっこうが ある日に ひいてね。</span>';
+  }
+  if (st.reason === 'holiday') {
+    return `きょうは おやすみ（${esc(st.holiday)}）なので ガチャは ひけません。<br>` +
+      '<span style="font-size:0.9em;color:#fff">がっこうが ある日に ひいてね。</span>';
+  }
+  return 'いまは ガチャの じかんでは ありません。<br>' +
+    (windowsText() ? `<span style="font-size:0.9em;color:#fff">ひける じかん：${esc(windowsText())}</span>` : '');
 }
 
 function windowsText() {
@@ -1433,7 +1564,10 @@ window.resetStudentPin = resetStudentPin;
 
 /* ---------- 時間帯設定 ---------- */
 function renderWindowTab() {
-  document.getElementById('always-open').checked = !!gmeta.alwaysOpen;
+  document.getElementById('always-open').checked    = !!gmeta.alwaysOpen;
+  document.getElementById('block-weekends').checked = gmeta.blockWeekends !== false;
+  document.getElementById('block-holidays').checked = gmeta.blockHolidays !== false;
+  renderTodayStatus();
   const el = document.getElementById('window-list');
   el.innerHTML = (gmeta.windows || []).map((w, i) => `
     <div class="window-row">
@@ -1446,6 +1580,24 @@ function renderWindowTab() {
   `).join('') + (gmeta.windows.length
       ? '<button class="btn btn-blue btn-sm" style="margin-top:6px" onclick="saveWindows()">保存</button>'
       : '<p style="color:#aaa;font-size:0.9em">時間帯が1つも無いときは、いつでも引けます。</p>');
+}
+
+/* 先生が設定を確かめられるよう、今日が引ける日かどうかを表示する */
+function renderTodayStatus() {
+  const el = document.getElementById('today-status');
+  if (!el) return;
+  const jst = toJst(new Date());
+  const ymd = `${jst.getUTCFullYear()}/${jst.getUTCMonth() + 1}/${jst.getUTCDate()}（${DOW_JA[jst.getUTCDay()]}）`;
+  const h = holidayName(jst);
+  const st = windowState(new Date());
+  let note;
+  if (st.open)                       note = '今の時刻は引ける状態です';
+  else if (st.reason === 'weekend')  note = '土日のため引けません';
+  else if (st.reason === 'holiday')  note = `祝日（${st.holiday}）のため引けません`;
+  else                               note = '時間帯外のため引けません';
+  el.innerHTML = `<span style="color:#ccc">今日：${ymd}${h ? ' ' + esc(h) : ''} — ` +
+    `<b style="color:${st.open ? '#81c784' : '#ffd700'}">${note}</b></span>` +
+    `<br><span style="color:#888;font-size:0.95em">※端末の時計ではなくサーバーの時刻で判定しています</span>`;
 }
 
 function addWindow() {
@@ -1474,11 +1626,19 @@ async function saveWindows() {
     }
     wins.push({ label: label.trim(), start, end });
   }
-  const always = document.getElementById('always-open').checked;
+  const always   = document.getElementById('always-open').checked;
+  const weekends = document.getElementById('block-weekends').checked;
+  const holidays = document.getElementById('block-holidays').checked;
   busy(true, '保存中…');
   try {
-    await setDoc(GMETA(), { windows: wins, alwaysOpen: always }, { merge: true });
-    gmeta.windows = wins; gmeta.alwaysOpen = always;
+    await setDoc(GMETA(), {
+      windows: wins, alwaysOpen: always,
+      blockWeekends: weekends, blockHolidays: holidays
+    }, { merge: true });
+    gmeta.windows = wins;
+    gmeta.alwaysOpen    = always;
+    gmeta.blockWeekends = weekends;
+    gmeta.blockHolidays = holidays;
     msg.style.color = '#81c784'; msg.textContent = '保存しました。';
     renderWindowTab();
   } catch (e) { netError(e); } finally { busy(false); }
@@ -1883,8 +2043,7 @@ async function renderGachaScreen() {
   const st = windowState(now);
   if (!st.open) {
     closed.style.display = 'block';
-    closed.innerHTML = 'いまは ガチャの じかんでは ありません。<br>' +
-      (windowsText() ? `<span style="font-size:0.9em;color:#fff">ひける じかん：${esc(windowsText())}</span>` : '');
+    closed.innerHTML = closedMessage(st);
     return;
   }
   if ((me.gachaCount || 0) > 0) {
