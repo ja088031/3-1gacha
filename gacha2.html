@@ -711,7 +711,8 @@
       min-width: 0;
       margin-bottom: 0;
     }
-    .window-row input[type="time"] {
+    .window-row input[type="time"],
+    .window-row input[type="date"] {
       width: auto;
       margin-bottom: 0;
       padding: 8px 10px;
@@ -848,6 +849,28 @@
       <div id="window-list"></div>
       <button class="btn btn-green btn-sm" style="margin-top:10px" onclick="addWindow()">＋ 時間帯を追加</button>
       <p id="window-msg" style="margin-top:8px;font-size:0.9em;min-height:1.2em"></p>
+    </div>
+
+    <div class="section-title">お休みの日（引けない日）</div>
+    <div class="add-form">
+      <p style="font-size:0.85em;color:#aaa;margin-bottom:12px">
+        夏休みなどの長期休業、創立記念日、振替休業日などを登録します。<br>
+        <b>1日だけ</b>のときは「終わり」を空のままにしてください。
+      </p>
+      <div id="closed-date-list"></div>
+      <button class="btn btn-green btn-sm" style="margin-top:10px" onclick="addDateRange('closed')">＋ お休みを追加</button>
+      <p id="closed-date-msg" style="margin-top:8px;font-size:0.9em;min-height:1.2em"></p>
+    </div>
+
+    <div class="section-title">特別に引ける日</div>
+    <div class="add-form">
+      <p style="font-size:0.85em;color:#aaa;margin-bottom:12px">
+        土曜授業参観など、<b>土日祝でも引けるようにしたい日</b>を登録します。<br>
+        ここに入れた日は「お休みの日」や土日祝の設定より優先されます（時間帯の設定はそのまま適用されます）。
+      </p>
+      <div id="open-date-list"></div>
+      <button class="btn btn-green btn-sm" style="margin-top:10px" onclick="addDateRange('open')">＋ 特別な日を追加</button>
+      <p id="open-date-msg" style="margin-top:8px;font-size:0.9em;min-height:1.2em"></p>
     </div>
 
     <div class="section-title">この端末のデータをクラウドへ移行</div>
@@ -1043,6 +1066,8 @@ function defaultMeta() {
     alwaysOpen: false,
     blockWeekends: true,
     blockHolidays: true,
+    closedDates: [],
+    openDates: [],
     windows: [
       { label: '中休み', start: '10:25', end: '10:45' },
       { label: '昼休み', start: '13:05', end: '13:30' }
@@ -1071,8 +1096,10 @@ async function loadMeta() {
     await setDoc(GMETA(), gmeta, { merge: true });
   } else {
     gmeta = Object.assign(defaultMeta(), snap.data());
-    if (!Array.isArray(gmeta.chars))   gmeta.chars = [];
-    if (!Array.isArray(gmeta.windows)) gmeta.windows = defaultMeta().windows;
+    if (!Array.isArray(gmeta.chars))       gmeta.chars = [];
+    if (!Array.isArray(gmeta.windows))     gmeta.windows = defaultMeta().windows;
+    if (!Array.isArray(gmeta.closedDates)) gmeta.closedDates = [];
+    if (!Array.isArray(gmeta.openDates))   gmeta.openDates = [];
   }
   return gmeta;
 }
@@ -1207,20 +1234,47 @@ function holidayName(jst) {
   return null;
 }
 
+/* 日本時間の日付を "YYYY-MM-DD" で返す（<input type="date"> と同じ形） */
+function jstYmd(jst) {
+  const m = String(jst.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(jst.getUTCDate()).padStart(2, '0');
+  return `${jst.getUTCFullYear()}-${m}-${d}`;
+}
+
+/* 登録された期間のどれかに ymd が入っていればその1件を返す。
+   終わりが未入力なら「その1日だけ」とみなす。 */
+function dateRangeHit(list, ymd) {
+  for (const r of (list || [])) {
+    if (!r || !r.start) continue;
+    const end = r.end || r.start;
+    if (r.start <= ymd && ymd <= end) return r;
+  }
+  return null;
+}
+
 function windowState(now) {
   if (gmeta.alwaysOpen) return { open: true };
 
   const jst = toJst(now);
   const dow = jst.getUTCDay();   // 0=日 … 6=土
+  const ymd = jstYmd(jst);
 
-  // 土日
-  if (gmeta.blockWeekends !== false && (dow === 0 || dow === 6)) {
-    return { open: false, reason: 'weekend', dow };
-  }
-  // 祝日（振替休日・国民の休日を含む）
-  if (gmeta.blockHolidays !== false) {
-    const h = holidayName(jst);
-    if (h) return { open: false, reason: 'holiday', holiday: h };
+  // 「特別に引ける日」は土日祝・お休みの日より優先する（時間帯の判定は続ける）
+  const special = dateRangeHit(gmeta.openDates, ymd);
+  if (!special) {
+    // 個別に登録されたお休み（長期休業・創立記念日・振替休業日など）
+    const closed = dateRangeHit(gmeta.closedDates, ymd);
+    if (closed) return { open: false, reason: 'closedDate', label: closed.label || 'おやすみ' };
+
+    // 土日
+    if (gmeta.blockWeekends !== false && (dow === 0 || dow === 6)) {
+      return { open: false, reason: 'weekend', dow };
+    }
+    // 祝日（振替休日・国民の休日を含む）
+    if (gmeta.blockHolidays !== false) {
+      const h = holidayName(jst);
+      if (h) return { open: false, reason: 'holiday', holiday: h };
+    }
   }
 
   const wins = (gmeta.windows || []).filter(w => toMinutes(w.start) !== null && toMinutes(w.end) !== null);
@@ -1241,6 +1295,10 @@ function closedMessage(st) {
   }
   if (st.reason === 'holiday') {
     return `きょうは おやすみ（${esc(st.holiday)}）なので ガチャは ひけません。<br>` +
+      '<span style="font-size:0.9em;color:#fff">がっこうが ある日に ひいてね。</span>';
+  }
+  if (st.reason === 'closedDate') {
+    return `きょうは おやすみ（${esc(st.label)}）なので ガチャは ひけません。<br>` +
       '<span style="font-size:0.9em;color:#fff">がっこうが ある日に ひいてね。</span>';
   }
   return 'いまは ガチャの じかんでは ありません。<br>' +
@@ -1567,6 +1625,7 @@ function renderWindowTab() {
   document.getElementById('always-open').checked    = !!gmeta.alwaysOpen;
   document.getElementById('block-weekends').checked = gmeta.blockWeekends !== false;
   document.getElementById('block-holidays').checked = gmeta.blockHolidays !== false;
+  renderDateLists();
   renderTodayStatus();
   const el = document.getElementById('window-list');
   el.innerHTML = (gmeta.windows || []).map((w, i) => `
@@ -1591,14 +1650,104 @@ function renderTodayStatus() {
   const h = holidayName(jst);
   const st = windowState(new Date());
   let note;
-  if (st.open)                       note = '今の時刻は引ける状態です';
-  else if (st.reason === 'weekend')  note = '土日のため引けません';
-  else if (st.reason === 'holiday')  note = `祝日（${st.holiday}）のため引けません`;
-  else                               note = '時間帯外のため引けません';
+  if (st.open)                          note = '今の時刻は引ける状態です';
+  else if (st.reason === 'weekend')     note = '土日のため引けません';
+  else if (st.reason === 'holiday')     note = `祝日（${esc(st.holiday)}）のため引けません`;
+  else if (st.reason === 'closedDate')  note = `お休みの日（${esc(st.label)}）のため引けません`;
+  else                                  note = '時間帯外のため引けません';
   el.innerHTML = `<span style="color:#ccc">今日：${ymd}${h ? ' ' + esc(h) : ''} — ` +
     `<b style="color:${st.open ? '#81c784' : '#ffd700'}">${note}</b></span>` +
     `<br><span style="color:#888;font-size:0.95em">※端末の時計ではなくサーバーの時刻で判定しています</span>`;
 }
+
+/* ---------- お休みの日 / 特別に引ける日 ---------- */
+const DATE_LISTS = {
+  closed: { key: 'closedDates', listId: 'closed-date-list', msgId: 'closed-date-msg',
+            ph: '名前（例：夏休み）',   empty: 'まだ登録されていません。' },
+  open:   { key: 'openDates',   listId: 'open-date-list',   msgId: 'open-date-msg',
+            ph: '名前（例：土曜授業）', empty: 'まだ登録されていません。' }
+};
+
+function renderDateLists() { renderDateList('closed'); renderDateList('open'); }
+
+function renderDateList(kind) {
+  const c = DATE_LISTS[kind];
+  const arr = gmeta[c.key] || [];
+  const el = document.getElementById(c.listId);
+  if (!el) return;
+  if (arr.length === 0) {
+    el.innerHTML = `<p style="color:#aaa;font-size:0.9em">${c.empty}</p>`;
+    return;
+  }
+  el.innerHTML = arr.map((r, i) => `
+    <div class="window-row">
+      <input type="text" id="${kind}-label-${i}" value="${esc(r.label || '')}" placeholder="${c.ph}">
+      <input type="date" id="${kind}-start-${i}" value="${esc(r.start || '')}">
+      <span>〜</span>
+      <input type="date" id="${kind}-end-${i}" value="${esc(r.end || '')}">
+      <button class="delete-btn" onclick="removeDateRange('${kind}', ${i})" title="削除">🗑️</button>
+    </div>
+  `).join('') +
+  `<button class="btn btn-blue btn-sm" style="margin-top:6px" onclick="saveDateRanges('${kind}')">保存</button>`;
+}
+
+function todayYmd() { return jstYmd(toJst(new Date())); }
+
+function addDateRange(kind) {
+  const key = DATE_LISTS[kind].key;
+  if (!Array.isArray(gmeta[key])) gmeta[key] = [];
+  gmeta[key].push({ label: '', start: todayYmd(), end: '' });
+  renderDateList(kind);
+}
+window.addDateRange = addDateRange;
+
+async function removeDateRange(kind, i) {
+  const key = DATE_LISTS[kind].key;
+  gmeta[key].splice(i, 1);
+  renderDateList(kind);
+  await saveDateRanges(kind);
+}
+window.removeDateRange = removeDateRange;
+
+async function saveDateRanges(kind) {
+  const c   = DATE_LISTS[kind];
+  const msg = document.getElementById(c.msgId);
+  const arr = gmeta[c.key] || [];
+  const out = [];
+
+  for (let i = 0; i < arr.length; i++) {
+    const labelEl = document.getElementById(`${kind}-label-${i}`);
+    const startEl = document.getElementById(`${kind}-start-${i}`);
+    const endEl   = document.getElementById(`${kind}-end-${i}`);
+    if (!startEl) continue;               // 既に画面から消えている行
+    const label = (labelEl.value || '').trim();
+    const start = startEl.value;
+    const end   = endEl.value;
+    if (!start) {
+      msg.style.color = '#ff6b6b';
+      msg.textContent = `${i + 1}つめの「はじまり」の日付を入れてください。`;
+      return;
+    }
+    if (end && end < start) {
+      msg.style.color = '#ff6b6b';
+      msg.textContent = `「${label || (i + 1) + 'つめ'}」の終わりは、はじまりより後にしてください。`;
+      return;
+    }
+    out.push({ label, start, end: end || '' });
+  }
+  out.sort((a, b) => a.start < b.start ? -1 : a.start > b.start ? 1 : 0);
+
+  busy(true, '保存中…');
+  try {
+    await setDoc(GMETA(), { [c.key]: out }, { merge: true });
+    gmeta[c.key] = out;
+    msg.style.color = '#81c784';
+    msg.textContent = '保存しました。';
+    renderDateList(kind);
+    renderTodayStatus();
+  } catch (e) { netError(e); } finally { busy(false); }
+}
+window.saveDateRanges = saveDateRanges;
 
 function addWindow() {
   gmeta.windows.push({ label: '', start: '10:25', end: '10:45' });
