@@ -1484,22 +1484,64 @@ function readLocalOld() {
   } catch (e) { return { students: [], chars: [] }; }
 }
 
+/* 出席番号の表記ゆれを吸収する。
+   全角数字（１２３）を半角に直し、「1番」「01」のような書き方からも数字を取り出す。 */
+function parseNo(raw) {
+  if (raw === undefined || raw === null) return null;
+  const half = String(raw).replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
+  const m = half.match(/\d+/);
+  if (!m) return null;
+  const n = Number(m[0]);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 function checkMigrate() {
   const old = readLocalOld();
   const prev = document.getElementById('migrate-preview');
   const btn  = document.getElementById('migrate-run-btn');
   document.getElementById('migrate-msg').textContent = '';
+
   if (old.students.length === 0 && old.chars.length === 0) {
-    prev.innerHTML = '<span style="color:#ff6b6b">この端末のブラウザには旧データが見つかりませんでした。</span>';
+    prev.innerHTML =
+      '<span style="color:#ff6b6b">この端末のブラウザには旧データが見つかりませんでした。</span>' +
+      '<br><span style="font-size:0.9em">旧アプリ（index.html）を使っていたのと同じブラウザで開いているか確認してください。</span>';
     btn.style.display = 'none';
     return;
   }
-  const totalCards = old.students.reduce((a, s) => a + ((s.collection || []).length), 0);
-  prev.innerHTML =
+
+  const ok = [], ng = [];
+  old.students.forEach(s => {
+    const no = parseNo(s.name);
+    if (no === null) ng.push(s.name);
+    else ok.push({ no, cards: (s.collection || []).length, count: s.gachaCount || 0 });
+  });
+  ok.sort((a, b) => a.no - b.no);
+  const totalCards = ok.reduce((a, s) => a + s.cards, 0);
+
+  let html =
     `見つかったデータ：<br>・児童 <b>${old.students.length}</b>名` +
     `<br>・キャラクター <b>${old.chars.length}</b>体` +
     `<br>・図鑑の合計 <b>${totalCards}</b>枚`;
-  btn.style.display = 'inline-block';
+
+  if (ok.length > 0) {
+    html += `<br><br>移行できる児童（${ok.length}名）：<br>` +
+      `<span style="font-size:0.85em">` +
+      ok.map(s => `${s.no}番(図鑑${s.cards})`).join('、') + '</span>';
+  }
+  if (ng.length > 0) {
+    html += `<br><br><span style="color:#ff6b6b">出席番号として読み取れなかったデータ ${ng.length}件：</span>` +
+      `<br><span style="font-size:0.85em">` + ng.map(v => `「${esc(String(v))}」`).join('、') + '</span>' +
+      `<br><span style="font-size:0.85em">これらは移行されません。旧アプリ側で出席番号を数字に直してください。</span>`;
+  }
+  // 出席番号の重複チェック（同じ番号が2つあると後勝ちで上書きされてしまう）
+  const dup = ok.map(s => s.no).filter((n, i, a) => a.indexOf(n) !== i);
+  if (dup.length > 0) {
+    html += `<br><br><span style="color:#ff6b6b">出席番号が重複しています：${[...new Set(dup)].join('、')}番</span>` +
+      `<br><span style="font-size:0.85em">このまま移行すると片方のデータが消えます。旧アプリ側で直してから実行してください。</span>`;
+  }
+
+  prev.innerHTML = html;
+  btn.style.display = (ok.length > 0 || old.chars.length > 0) ? 'inline-block' : 'none';
 }
 window.checkMigrate = checkMigrate;
 
@@ -1521,20 +1563,26 @@ async function runMigrate() {
       }));
       await setDoc(GMETA(), { chars: gmeta.chars }, { merge: true });
     }
-    let n = 0;
+    let n = 0, cards = 0;
+    const skipped = [];
     for (const s of old.students) {
-      const no = Number(s.name);
-      if (!Number.isFinite(no)) continue;
+      const no = parseNo(s.name);
+      if (no === null) { skipped.push(s.name); continue; }
+      const col = Array.isArray(s.collection) ? s.collection : [];
       await setDoc(STU(no), {
         gachaCount: s.gachaCount || 0,
-        collection: Array.isArray(s.collection) ? s.collection : []
+        collection: col
       }, { merge: true });
-      n++;
+      n++; cards += col.length;
     }
     await loadStudents();
-    renderTeacher();
-    msg.style.color = '#81c784';
-    msg.textContent = `移行しました（児童${n}名 / キャラ${gmeta.chars.length}体）。`;
+    await renderTeacher();
+    msg.style.color = skipped.length > 0 ? '#ffd700' : '#81c784';
+    msg.innerHTML = `移行しました（児童${n}名 / 図鑑${cards}枚 / キャラ${gmeta.chars.length}体）。` +
+      (skipped.length > 0
+        ? `<br><span style="color:#ff6b6b">${skipped.length}件は出席番号を読み取れず移行できませんでした：` +
+          skipped.map(v => `「${esc(String(v))}」`).join('、') + '</span>'
+        : '');
   } catch (e) { netError(e); } finally { busy(false); }
 }
 window.runMigrate = runMigrate;
