@@ -202,6 +202,33 @@
   <button class="btn btn-blue btn-sm" onclick="backHome()">もどる</button>
 </div>
 
+<!-- ========== ALIGNMENT CHECK (teacher) ========== -->
+<div class="screen" id="screen-align">
+  <button class="back-btn" onclick="backToTeacher()">← 先生ページへ</button>
+  <div class="title">お手本との 対応づけ<span class="sub" id="al-lesson"></span></div>
+  <div class="panel">
+    <h3>判定</h3>
+    <div id="al-verdict"></div>
+  </div>
+  <div class="panel">
+    <h3>どこで つっかえたか</h3>
+    <canvas id="al-stretch" width="520" height="190" style="width:100%;background:rgba(0,0,0,0.25);border-radius:10px"></canvas>
+    <p class="note" style="margin-top:8px">
+      横軸＝お手本の進み（秒）。縦軸＝その場所で<b>お手本の何倍の時間</b>がかかったか。
+      1.0の線に沿っていれば同じテンポ。<b>とがって上に出ている所が、つっかえた箇所</b>です。
+    </p>
+  </div>
+  <div class="panel">
+    <h3>対応づけの経路</h3>
+    <canvas id="al-path" width="520" height="260" style="width:100%;background:rgba(0,0,0,0.25);border-radius:10px"></canvas>
+    <p class="note" style="margin-top:8px">
+      横＝お手本の時間、縦＝児童の時間。<b>なめらかな右上がりの線なら対応づけ成功</b>。
+      階段状にガタガタだったり、水平／垂直に長く伸びていたら、うまく対応づけられていません。
+    </p>
+  </div>
+  <button class="btn btn-gold" onclick="againRead()">もう1回 試す</button>
+</div>
+
 <!-- ========== TEACHER PIN ========== -->
 <div class="screen" id="screen-teacher-pin">
   <button class="back-btn" onclick="show('screen-top')">← もどる</button>
@@ -342,6 +369,8 @@ const CLASS_SIZE = 27;
 let meta = null;          // { teacherPin, settings }
 let me = null;            // ログイン中の児童データ
 let lastResult = null;
+let lastFeat = null;      // 直近の録音から作った特徴量（お手本との対応づけに使う）
+let lastAlign = null;     // 直近の対応づけ結果
 let lessons = [];         // 教材一覧
 let pickedLesson = null;  // 児童がいま選んでいる教材
 
@@ -615,15 +644,17 @@ async function startRecord(mode, lessonId){
     document.getElementById("rec-title").innerHTML = recMode === "ref"
       ? '<span class="rec-dot"></span>お手本を 聴いています'
       : '<span class="rec-dot"></span>よんでいます';
-    document.getElementById("rec-lead").textContent = recMode === "ref"
-      ? "CDを再生してください。終わったら下のボタンを押します"
-      : (pickedLesson ? `「${pickedLesson.name}」を 読んでね！` : "きょうかしょを 読んでね！");
+    document.getElementById("rec-lead").textContent =
+      recMode === "ref"   ? "CDを再生してください。終わったら下のボタンを押します" :
+      recMode === "align" ? "お手本と同じ範囲を読んでください（わざと詰まってもOK）" :
+      (pickedLesson ? `「${pickedLesson.name}」を 読んでね！` : "きょうかしょを 読んでね！");
     document.getElementById("rec-stop").disabled = false;
   }, CALIB_SEC * 1000);
 }
 window.startRecord = () => startRecord("child");
 window.startCalib = () => startRecord("calib");
 window.startRefRec = (id) => startRecord("ref", id);
+window.startAlignTest = (id) => startRecord("align", id);
 window.againRead = () => startRecord(recMode, refTargetId);
 window.backHome = () => {
   if (recMode !== "child"){ recMode = "child"; calibMode = false; show("screen-teacher"); loadTeacher(); }
@@ -645,7 +676,7 @@ function loop(){
   } else {
     const t = (performance.now() - rec.t0) / 1000;
     const pitch = rms > rec.noiseFloor * 3 ? detectPitch(audio.buf, audio.ctx.sampleRate) : 0;
-    rec.frames.push({ t, rms, pitch });
+    rec.frames.push({ t, rms, pitch, band: melBands(audio) });
     // 表示（ノイズフロアを0、その30倍を満タンの目安に）
     const rel = Math.min(1, Math.max(0, Math.log10(rms / rec.noiseFloor) / Math.log10(30)));
     document.getElementById("vol-fill").style.width = (rel * 100) + "%";
@@ -653,6 +684,25 @@ function loop(){
     if (t >= REC_MAX_SEC){ stopRecord(); return; }
   }
   audio.raf = requestAnimationFrame(loop);
+}
+
+/* 声のスペクトルを8本の帯に粗くまとめる。
+   お手本（大人）と児童の声を対応づけるための特徴量。帯ごとの平均を後で引く
+   （ケプストラム平均正規化と同じ考え方）ことで、声質の違いをかなり打ち消せる。 */
+const MEL_EDGES = [200, 400, 650, 950, 1350, 1900, 2700, 3800, 5200];
+function melBands(a){
+  if (!a.freq) a.freq = new Float32Array(a.analyser.frequencyBinCount);
+  a.analyser.getFloatFrequencyData(a.freq);           // dB
+  const nyq = a.ctx.sampleRate / 2, n = a.freq.length;
+  const out = new Array(MEL_EDGES.length - 1);
+  for (let b = 0; b < out.length; b++){
+    const i0 = Math.max(0, Math.floor(MEL_EDGES[b] / nyq * n));
+    const i1 = Math.min(n - 1, Math.ceil(MEL_EDGES[b+1] / nyq * n));
+    let s = 0, c = 0;
+    for (let i = i0; i <= i1; i++){ s += a.freq[i]; c++; }
+    out[b] = c ? s / c : -120;
+  }
+  return out;
 }
 
 function calcRms(buf){
@@ -736,6 +786,7 @@ async function stopRecord(){
     return;
   }
   const lesson = recMode === "child" ? pickedLesson : null;
+  lastFeat = buildFeatures(frames, noiseFloor);
   const result = score(frames, noiseFloor, dur, meta.settings, lesson);
   // 声がほとんど拾えていないときは点を出さない（0点表示で意欲を折らないため）
   if (result.raw.voicedRatio < 0.08){
@@ -749,6 +800,17 @@ async function stopRecord(){
     await saveReference(result);
     return;
   }
+  // お手本がある教材なら、時間を伸び縮みさせて対応づける
+  lastAlign = null;
+  const lsn = lesson || (recMode === "align" ? lessons.find(x => x.id === refTargetId) : null);
+  if (lsn && lsn.refFeat){
+    try {
+      const ref = unpackFeat(lsn.refFeat, lsn.refFps);
+      const al = dtw(lastFeat, ref);
+      if (al) lastAlign = { al, child: lastFeat, ref, lesson: lsn };
+    } catch(e){ lastAlign = null; }
+  }
+  if (recMode === "align"){ renderAlign(); return; }
   lastResult = result;
   if (calibMode) result.saved = null;      // 調整テストは記録しない
   else await saveResult(result);
@@ -756,19 +818,257 @@ async function stopRecord(){
 }
 window.stopRecord = stopRecord;
 
+/* ==================================================
+   お手本との対応づけ（DTW）
+   カラオケが「いつどの音が来るか」を知っているのと同じことを、
+   お手本の朗読から作る。時間を伸び縮みさせて「お手本のここ＝児童のここ」を
+   求めると、抑揚・間・つっかえを同じ土俵で比べられるようになる。
+   ================================================== */
+const FEAT_FPS = 25;          // 対応づけに使う固定フレームレート（40ms刻み）
+
+// 録音フレームを固定間隔に並べ直し、話者差を打ち消した特徴量にする
+function buildFeatures(frames, noiseFloor){
+  const dur = frames.length ? frames[frames.length-1].t : 0;
+  const n = Math.max(1, Math.floor(dur * FEAT_FPS));
+  const nb = MEL_EDGES.length - 1;
+  const band = [], energy = [], pitch = [];
+  let j = 0;
+  for (let i = 0; i < n; i++){
+    const t = i / FEAT_FPS;
+    while (j < frames.length - 1 && frames[j+1].t < t) j++;   // 近いフレームを拾う
+    const f = frames[j];
+    band.push(f.band ? f.band.slice() : new Array(nb).fill(-120));
+    energy.push(20 * Math.log10(f.rms));
+    pitch.push(f.pitch > 60 && f.pitch < 600 ? f.pitch : 0);
+  }
+  // 帯ごとの平均を引く（声質の違いを打ち消す）
+  for (let b = 0; b < nb; b++){
+    let s = 0; for (let i = 0; i < n; i++) s += band[i][b];
+    const m = s / n;
+    for (let i = 0; i < n; i++) band[i][b] -= m;
+  }
+  // 音量は「その録音の中での相対値」にする（マイク感度の違いを打ち消す）
+  const eMax = Math.max(...energy), eMin = 20 * Math.log10(noiseFloor);
+  const eRange = Math.max(6, eMax - eMin);
+  const energyN = energy.map(e => Math.max(0, Math.min(1, (e - eMin) / eRange)));
+  // 声の高さは各自の中央値からの半音差にする（大人と子どもを比べられるように）
+  const voiced = pitch.filter(p => p > 0);
+  const med = median(voiced) || 1;
+  const semi = pitch.map(p => p > 0 ? 12 * Math.log2(p / med) : null);
+  return { fps: FEAT_FPS, n, band, energy: energyN, semi };
+}
+
+// 2フレーム間の距離。スペクトルの形と音量の両方で見る
+function featDist(A, B, i, j){
+  let s = 0;
+  const a = A.band[i], b = B.band[j];
+  for (let k = 0; k < a.length; k++){ const d = (a[k] - b[k]) / 12; s += d * d; }
+  const de = (A.energy[i] - B.energy[j]) * 2.2;
+  return Math.sqrt(s + de * de);
+}
+
+/* 帯付きDTW。全体を総当たりすると重いので、対角線の周りだけ計算する。 */
+function dtw(A, B){
+  const N = A.n, M = B.n;
+  const slope = M / N;
+  const band = Math.max(40, Math.round(Math.max(N, M) * 0.35));
+  const INF = 1e18;
+  let prev = new Float64Array(M + 1).fill(INF);
+  const ptr = [];                       // 経路復元用
+  prev[0] = 0;
+  for (let i = 1; i <= N; i++){
+    const cur = new Float64Array(M + 1).fill(INF);
+    const center = Math.round(i * slope);
+    const lo = Math.max(1, center - band), hi = Math.min(M, center + band);
+    const row = new Uint8Array(M + 1);
+    for (let j = lo; j <= hi; j++){
+      const d = featDist(A, B, i - 1, j - 1);
+      const a = prev[j - 1], b = prev[j], c = cur[j - 1];
+      let best = a, dir = 1;            // 1=斜め 2=上 3=左
+      if (b < best){ best = b; dir = 2; }
+      if (c < best){ best = c; dir = 3; }
+      if (best >= INF) continue;
+      cur[j] = best + d;
+      row[j] = dir;
+    }
+    ptr.push(row);
+    prev = cur;
+  }
+  if (prev[M] >= INF) return null;
+  // 経路を終点からたどる
+  const path = [];
+  let i = N, j = M;
+  while (i > 0 && j > 0){
+    path.push([i - 1, j - 1]);
+    const dir = ptr[i - 1][j];
+    if (dir === 1){ i--; j--; }
+    else if (dir === 2){ i--; }
+    else if (dir === 3){ j--; }
+    else break;
+  }
+  path.reverse();
+  return { cost: prev[M] / path.length, path };
+}
+
+/* 対応づけの結果から、お手本に対して「どこで何倍の時間がかかったか」を出す。
+   全体が一様に遅いのは「ゆっくり読んだ」だけ。局所的に大きく伸びていれば、
+   そこでつっかえたと判断できる。 */
+function stretchCurve(al, A, B, win){
+  const w = win || Math.round(FEAT_FPS * 1.2);
+  const out = [];
+  const P = al.path;
+  for (let k = 0; k < P.length; k += Math.max(1, Math.round(w / 3))){
+    const k2 = Math.min(P.length - 1, k + w);
+    const di = P[k2][0] - P[k][0];        // 児童側で進んだ長さ
+    const dj = P[k2][1] - P[k][1];        // お手本側で進んだ長さ
+    if (dj <= 0) continue;
+    out.push({ refT: P[k][1] / B.fps, childT: P[k][0] / A.fps, ratio: di / dj });
+  }
+  return out;
+}
+
+/* ========== 対応づけの可視化（先生が目で確かめるための画面） ========== */
+function renderAlign(){
+  show("screen-align");
+  const box = document.getElementById("al-verdict");
+  if (!lastAlign){
+    document.getElementById("al-lesson").textContent = "";
+    box.innerHTML = `<p class="msg">対応づけできませんでした。お手本が登録されているか確認してください。</p>`;
+    return;
+  }
+  const { al, child, ref, lesson } = lastAlign;
+  document.getElementById("al-lesson").textContent = lesson.name;
+
+  const curve = stretchCurve(al, child, ref);
+  const ratios = curve.map(c => c.ratio).filter(r => r > 0 && isFinite(r));
+  const overall = (child.n / child.fps) / (ref.n / ref.fps);
+  const med = median(ratios) || 1;
+  // つっかえ＝お手本に対して局所的に大きく伸びた箇所
+  const stumbles = curve.filter(c => c.ratio > med * 1.8 && c.ratio > 1.5);
+  // 経路が斜めに進んでいるか（水平/垂直に潰れていないか）＝対応づけの健全さ
+  let diag = 0;
+  for (let k = 1; k < al.path.length; k++){
+    if (al.path[k][0] > al.path[k-1][0] && al.path[k][1] > al.path[k-1][1]) diag++;
+  }
+  const diagRate = diag / Math.max(1, al.path.length - 1);
+  const ok = diagRate > 0.45 && al.cost < 3.0;
+
+  box.innerHTML = `
+    <p style="font-size:1.15em;margin-bottom:10px">
+      ${ok ? '<span style="color:#a5d6a7;font-weight:bold">✅ 対応づけできています</span>'
+           : '<span style="color:#ff8a80;font-weight:bold">⚠️ 対応づけが不安定です</span>'}
+    </p>
+    <table>
+      <tr><th>全体の時間</th><td>お手本の ${overall.toFixed(2)} 倍</td></tr>
+      <tr><th>つっかえた所</th><td>${stumbles.length} か所
+        ${stumbles.length ? `<br><span class="note">${stumbles.slice(0,5).map(s=>s.refT.toFixed(1)+"秒あたり").join(" / ")}</span>` : ""}</td></tr>
+      <tr><th>経路のなめらかさ</th><td>${(diagRate*100).toFixed(0)} %<span class="note">（45%以上で良好）</span></td></tr>
+      <tr><th>照合の近さ</th><td>${al.cost.toFixed(2)}<span class="note">（小さいほど似ている。3.0未満で良好）</span></td></tr>
+    </table>`;
+
+  drawStretch(curve, med);
+  drawPath(al, child, ref);
+}
+
+function drawStretch(curve, med){
+  const cv = document.getElementById("al-stretch"), g = cv.getContext("2d");
+  g.clearRect(0,0,cv.width,cv.height);
+  if (!curve.length) return;
+  const maxT = curve[curve.length-1].refT || 1;
+  const maxR = Math.max(2.5, ...curve.map(c => c.ratio)) * 1.1;
+  const X = t => 36 + (cv.width-46) * (t / maxT);
+  const Y = r => cv.height - 24 - (cv.height-40) * (r / maxR);
+  // 目盛り（1.0倍の線）
+  g.strokeStyle = "rgba(255,255,255,0.35)"; g.lineWidth = 1;
+  g.beginPath(); g.moveTo(X(0), Y(1)); g.lineTo(X(maxT), Y(1)); g.stroke();
+  g.fillStyle = "rgba(255,255,255,0.6)"; g.font = "11px sans-serif";
+  g.fillText("1.0倍", 2, Y(1)+4);
+  g.fillText(maxR.toFixed(1), 2, Y(maxR)+10);
+  g.fillText("0", 2, Y(0));
+  // つっかえの目安線
+  g.strokeStyle = "rgba(255,138,128,0.5)"; g.setLineDash([4,4]);
+  g.beginPath(); g.moveTo(X(0), Y(med*1.8)); g.lineTo(X(maxT), Y(med*1.8)); g.stroke();
+  g.setLineDash([]);
+  // 本体
+  g.strokeStyle = "#ffd54f"; g.lineWidth = 2; g.beginPath();
+  curve.forEach((c,i) => i ? g.lineTo(X(c.refT), Y(c.ratio)) : g.moveTo(X(c.refT), Y(c.ratio)));
+  g.stroke();
+  // つっかえ箇所を強調
+  g.fillStyle = "#ff8a80";
+  for (const c of curve) if (c.ratio > med*1.8 && c.ratio > 1.5){
+    g.beginPath(); g.arc(X(c.refT), Y(c.ratio), 4, 0, 7); g.fill();
+  }
+}
+
+function drawPath(al, child, ref){
+  const cv = document.getElementById("al-path"), g = cv.getContext("2d");
+  g.clearRect(0,0,cv.width,cv.height);
+  const P = al.path;
+  const X = j => 30 + (cv.width-40) * (j / ref.n);
+  const Y = i => cv.height - 22 - (cv.height-34) * (i / child.n);
+  // 参考: 一様に伸びた場合の線
+  g.strokeStyle = "rgba(255,255,255,0.25)"; g.setLineDash([5,5]); g.beginPath();
+  g.moveTo(X(0), Y(0)); g.lineTo(X(ref.n), Y(child.n)); g.stroke(); g.setLineDash([]);
+  g.strokeStyle = "#4fc3f7"; g.lineWidth = 2; g.beginPath();
+  P.forEach((p,k) => k ? g.lineTo(X(p[1]), Y(p[0])) : g.moveTo(X(p[1]), Y(p[0])));
+  g.stroke();
+  g.fillStyle = "rgba(255,255,255,0.6)"; g.font = "11px sans-serif";
+  g.fillText("お手本 →", cv.width-70, cv.height-6);
+  g.save(); g.translate(12, 60); g.rotate(-Math.PI/2); g.fillText("児童 →", 0, 0); g.restore();
+}
+
+window.backToTeacher = () => { recMode = "child"; calibMode = false; show("screen-teacher"); loadTeacher(); };
+
 /* ========== 教材（お手本CD・文字数） ==========
    音声も本文も保存しない。残すのは「何秒だったか」「何文字か」という数値だけ。 */
+/* 特徴量を int8 に量子化して base64 に。音声としては復元できない数値列で、
+   1分の朗読でも数十KB に収まる。 */
+function packFeat(F){
+  const nb = MEL_EDGES.length - 1, n = F.n;
+  const a = new Int8Array(n * (nb + 2));
+  const q = (v, scale) => Math.max(-127, Math.min(127, Math.round(v * scale)));
+  let p = 0;
+  for (let i = 0; i < n; i++){
+    for (let b = 0; b < nb; b++) a[p++] = q(F.band[i][b], 4);      // dB → ±31dB
+    a[p++] = q(F.energy[i], 120);                                  // 0..1
+    a[p++] = F.semi[i] === null ? -128 : q(F.semi[i], 6);          // 半音 → ±21
+  }
+  let s = "";
+  for (let i = 0; i < a.length; i++) s += String.fromCharCode(a[i] & 0xff);
+  return btoa(s);
+}
+function unpackFeat(b64, fps){
+  const bin = atob(b64), nb = MEL_EDGES.length - 1, stride = nb + 2;
+  const n = Math.floor(bin.length / stride);
+  const band = [], energy = [], semi = [];
+  for (let i = 0; i < n; i++){
+    const row = [];
+    for (let b = 0; b < nb; b++){ row.push(((bin.charCodeAt(i*stride+b) << 24) >> 24) / 4); }
+    band.push(row);
+    energy.push(((bin.charCodeAt(i*stride+nb) << 24) >> 24) / 120);
+    const sv = (bin.charCodeAt(i*stride+nb+1) << 24) >> 24;
+    semi.push(sv === -128 ? null : sv / 6);
+  }
+  return { fps: fps || FEAT_FPS, n, band, energy, semi };
+}
+
 async function saveReference(r){
   const l = lessons.find(x => x.id === refTargetId);
   if (!l){ notice("教材が見つかりません", ["先生ページからやり直してください"]); return; }
-  const patch = { refDur: Math.round(r.raw.speakDur * 10) / 10, refSemi: Math.round(r.raw.semi * 100) / 100 };
+  const feat = packFeat(lastFeat);
+  const patch = {
+    refDur: Math.round(r.raw.speakDur * 10) / 10,
+    refSemi: Math.round(r.raw.semi * 100) / 100,
+    refFeat: feat, refFps: FEAT_FPS
+  };
   try {
     await updateDoc(LES(l.id), patch);
     Object.assign(l, patch);
     notice("お手本を とうろくしました", [
       `「${l.name}」のお手本：${patch.refDur} 秒`,
       l.chars ? `1分あたり ${Math.round(l.chars / (patch.refDur/60))} 字のペースです` : "",
-      "※ 音声は保存していません（時間の数値だけ）"
+      `照合用データ ${Math.round(feat.length/1024)} KB を保存しました`,
+      "※ 音声は保存していません（声の高さと音量の数値列だけ）"
     ].filter(Boolean));
   } catch(e){
     notice("保存できませんでした", [String(e.code || e.message)]);
@@ -1131,6 +1431,7 @@ function renderLessonList(){
         <td>${l.refDur ? Math.round(l.refDur) + "秒" + (l.chars ? `<br><span class="note">${Math.round(l.chars/(l.refDur/60))}字/分</span>` : "") : "—"}</td>
         <td><div class="t-actions">
           <button class="btn btn-green btn-xs" onclick="startRefRec('${l.id}')">🎧 お手本を聴く</button>
+          ${l.refFeat ? `<button class="btn btn-blue btn-xs" onclick="startAlignTest('${l.id}')">🔍 対応づけを試す</button>` : ""}
           <button class="btn btn-red btn-xs" onclick="delLesson('${l.id}')">削除</button>
         </div></td>
       </tr>`).join("")}</tbody></table>`;
