@@ -885,6 +885,25 @@
       <p id="migrate-msg" style="margin-top:8px;font-size:0.9em;min-height:1.2em"></p>
     </div>
 
+    <div class="section-title">1人だけ図鑑を復元する</div>
+    <div class="add-form">
+      <p style="font-size:0.85em;color:#aaa;margin-bottom:12px">
+        図鑑が消えてしまった児童がいるときに、<b>この端末に残っている旧アプリのデータ</b>から
+        その子の図鑑だけを戻します。<br>
+        旧アプリを使っていた端末で実行してください。
+      </p>
+      <div class="form-row">
+        <input type="text" id="restore-no" placeholder="出席番号（例：1）" style="flex:1">
+        <button class="btn btn-blue btn-sm" onclick="checkRestoreOne()">🔍 調べる</button>
+      </div>
+      <div id="restore-preview" style="font-size:0.9em;color:#ccc;margin-top:10px"></div>
+      <div id="restore-actions" style="display:none;margin-top:10px">
+        <button class="btn btn-green btn-sm" onclick="restoreOne('append')">➕ 今の図鑑に足す</button>
+        <button class="btn btn-gray btn-sm" style="margin-top:8px" onclick="restoreOne('replace')">♻️ 旧データで置き換える</button>
+      </div>
+      <p id="restore-msg" style="margin-top:8px;font-size:0.9em;min-height:1.2em"></p>
+    </div>
+
     <div class="section-title">バックアップ（テキスト）</div>
     <div class="add-form">
       <p style="font-size:0.85em;color:#aaa;margin-bottom:12px">
@@ -944,7 +963,6 @@
   </div>
   <p class="progress-label" id="collection-progress-label"></p>
   <div class="collection-grid" id="collection-grid"></div>
-  <button class="btn btn-gray btn-sm" style="margin-top:10px" onclick="resetCollection()">🔒 図鑑をリセット（先生用）</button>
 </div>
 
 <!-- ===== GACHA ===== -->
@@ -1572,8 +1590,10 @@ function renderStudentManageTab() {
   el.innerHTML = students.map(s => `
     <div class="student-row">
       <div class="student-name">${s.no}番</div>
+      <div style="font-size:0.8em;color:#aaa">図鑑${(s.collection || []).length}枚</div>
       <div style="font-size:0.8em;color:#aaa">${s.gachaPinSet ? '🔒 設定済み' : '🔓 初期(' + INITIAL_STUDENT_PIN + ')'}</div>
       <button class="delete-btn" style="color:#4fc3f7" onclick="resetStudentPin(${s.no})" title="パスワードを初期化">🔑</button>
+      <button class="delete-btn" style="color:#ffb74d" onclick="resetStudentCollection(${s.no})" title="図鑑をリセット">📖</button>
       <button class="delete-btn" onclick="deleteStudent(${s.no})" title="削除">🗑️</button>
     </div>
   `).join('');
@@ -1608,6 +1628,21 @@ async function deleteStudent(no) {
   } catch (e) { netError(e); } finally { busy(false); }
 }
 window.deleteStudent = deleteStudent;
+
+async function resetStudentCollection(no) {
+  const s = students.find(x => x.no === no);
+  if (!s) return;
+  const n = (s.collection || []).length;
+  if (n === 0) { alert(`${no}番さんの図鑑はまだ空です。`); return; }
+  if (!confirm(`${no}番さんの図鑑（${n}枚）をすべて消します。元に戻せません。\n\nよろしいですか？`)) return;
+  busy(true, '保存中…');
+  try {
+    await setDoc(STU(no), { collection: [] }, { merge: true });
+    await loadStudents();
+    renderStudentManageTab();
+  } catch (e) { netError(e); } finally { busy(false); }
+}
+window.resetStudentCollection = resetStudentCollection;
 
 async function resetStudentPin(no) {
   if (!confirm(`${no}番のガチャのパスワードを ${INITIAL_STUDENT_PIN} に戻しますか？`)) return;
@@ -1907,6 +1942,78 @@ async function runMigrate() {
 }
 window.runMigrate = runMigrate;
 
+/* ---------- 1人だけ図鑑を復元 ---------- */
+let restoreTarget = null;   // { no, oldCol, curCol }
+
+async function checkRestoreOne() {
+  const prev = document.getElementById('restore-preview');
+  const acts = document.getElementById('restore-actions');
+  const msg  = document.getElementById('restore-msg');
+  msg.textContent = '';
+  acts.style.display = 'none';
+  restoreTarget = null;
+
+  const no = parseNo(document.getElementById('restore-no').value);
+  if (no === null) {
+    prev.innerHTML = '<span style="color:#ff6b6b">出席番号を数字で入力してください。</span>';
+    return;
+  }
+  const old = readLocalOld();
+  if (old.students.length === 0) {
+    prev.innerHTML = '<span style="color:#ff6b6b">この端末のブラウザには旧データが見つかりませんでした。</span>' +
+      '<br><span style="font-size:0.9em">旧アプリ（index.html）を使っていた端末・ブラウザで開いてください。</span>';
+    return;
+  }
+  const s = old.students.find(x => parseNo(x.name) === no);
+  if (!s) {
+    prev.innerHTML = `<span style="color:#ff6b6b">旧データに ${no}番 が見つかりませんでした。</span>`;
+    return;
+  }
+  const oldCol = Array.isArray(s.collection) ? s.collection : [];
+
+  busy(true, '確認中…');
+  try {
+    const snap = await getDoc(STU(no));
+    const cur  = normalizeStudent(no, snap.data());
+    restoreTarget = { no, oldCol, curCol: cur.collection };
+    prev.innerHTML =
+      `<b>${no}番</b><br>` +
+      `・旧データの図鑑：<b>${oldCol.length}</b>枚<br>` +
+      `・今のクラウドの図鑑：<b>${cur.collection.length}</b>枚<br><br>` +
+      `「今の図鑑に足す」→ <b>${oldCol.length + cur.collection.length}</b>枚になります<br>` +
+      `「旧データで置き換える」→ <b>${oldCol.length}</b>枚になります` +
+      `<br><br><span style="font-size:0.9em">図鑑が消えた子を戻すときは「足す」を選んでください` +
+      `（消えたあとに引いた分を残せます）。</span>`;
+    acts.style.display = 'block';
+  } catch (e) { netError(e); } finally { busy(false); }
+}
+window.checkRestoreOne = checkRestoreOne;
+
+async function restoreOne(mode) {
+  if (!restoreTarget) return;
+  const { no, oldCol, curCol } = restoreTarget;
+  const next = mode === 'append' ? [...curCol, ...oldCol] : [...oldCol];
+  const msg = document.getElementById('restore-msg');
+
+  if (!confirm(
+    `${no}番さんの図鑑を ${curCol.length}枚 → ${next.length}枚 にします。\n\n` +
+    (mode === 'append' ? '（今の図鑑に旧データを足します）' : '（旧データで置き換えます。今の図鑑は消えます）') +
+    '\n\nよろしいですか？')) return;
+
+  busy(true, '復元中…');
+  try {
+    await setDoc(STU(no), { collection: next }, { merge: true });
+    await loadStudents();
+    renderStudentManageTab();
+    renderCountTab();
+    msg.style.color = '#81c784';
+    msg.textContent = `${no}番さんの図鑑を ${next.length}枚 に復元しました。`;
+    document.getElementById('restore-actions').style.display = 'none';
+    restoreTarget = null;
+  } catch (e) { netError(e); } finally { busy(false); }
+}
+window.restoreOne = restoreOne;
+
 /* ---------- バックアップ（テキスト） ---------- */
 function showBackupText() {
   const data = { version: 2, meta: gmeta, students };
@@ -2139,21 +2246,8 @@ window.openCharModal = openCharModal;
 function closeCharModal() { document.getElementById('char-modal').classList.remove('active'); }
 window.closeCharModal = closeCharModal;
 
-async function resetCollection() {
-  if (!me) return;
-  if (!me.collection || me.collection.length === 0) { alert('図鑑はまだ空です。'); return; }
-  const inputPin = prompt('先生用PINを入力してください。');
-  if (inputPin === null) return;
-  if (inputPin !== gmeta.teacherPin) { alert('PINがちがいます。'); return; }
-  if (!confirm(`${me.no}番さんの図鑑をリセットします。よろしいですか？`)) return;
-  busy(true, '保存中…');
-  try {
-    await setDoc(STU(me.no), { collection: [] }, { merge: true });
-    me.collection = [];
-    renderCollection();
-  } catch (e) { netError(e); } finally { busy(false); }
-}
-window.resetCollection = resetCollection;
+/* 図鑑のリセットは先生ページ（児童管理タブ）からのみ行う。
+   児童の図鑑画面には置かない（児童がPINを試せてしまうため）。 */
 
 /* =====================
    児童：ガチャ
