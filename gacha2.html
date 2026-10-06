@@ -956,13 +956,16 @@
 
 <!-- ===== COLLECTION ===== -->
 <div id="screen-collection" class="screen">
-  <button class="back-btn" onclick="showScreen('screen-student-home')">← もどる</button>
+  <button class="back-btn" onclick="backFromCollection()">← もどる</button>
   <h2>📖 <span id="collection-student-name"></span>番のずかん</h2>
   <div class="progress-bar-wrap">
     <div class="progress-bar" id="collection-progress-bar"></div>
   </div>
   <p class="progress-label" id="collection-progress-label"></p>
   <div class="collection-grid" id="collection-grid"></div>
+  <div id="collection-teacher-tools" style="display:none;margin-top:18px;text-align:center">
+    <button class="btn btn-red btn-sm" onclick="resetViewedCollection()">🗑️ この子の図鑑をリセット</button>
+  </div>
 </div>
 
 <!-- ===== GACHA ===== -->
@@ -1054,6 +1057,7 @@ let gmeta    = null;   // { teacherPin, chars[], windows[], alwaysOpen }
 let students = [];     // [{ no, gachaCount, collection[], gachaPin, gachaPinSet }]
 let currentNo = null;  // ログイン中の出席番号
 let me = null;         // ログイン中の児童データ
+let viewingAsTeacher = false;  // 先生ページから図鑑を開いているか
 
 /* =====================
    共通ユーティリティ
@@ -1590,10 +1594,10 @@ function renderStudentManageTab() {
   el.innerHTML = students.map(s => `
     <div class="student-row">
       <div class="student-name">${s.no}番</div>
-      <div style="font-size:0.8em;color:#aaa">図鑑 ${[...new Set(s.collection || [])].length}種 / ${(s.collection || []).length}枚</div>
+      <div style="font-size:0.85em;color:#ffd700">${[...new Set(s.collection || [])].length} / ${(gmeta.chars || []).length}体</div>
       <div style="font-size:0.8em;color:#aaa">${s.gachaPinSet ? '🔒 設定済み' : '🔓 初期(' + INITIAL_STUDENT_PIN + ')'}</div>
+      <button class="delete-btn" style="color:#81c784" onclick="viewStudentCollection(${s.no})" title="図鑑を見る">📖</button>
       <button class="delete-btn" style="color:#4fc3f7" onclick="resetStudentPin(${s.no})" title="パスワードを初期化">🔑</button>
-      <button class="delete-btn" style="color:#ffb74d" onclick="resetStudentCollection(${s.no})" title="図鑑をリセット">📖</button>
       <button class="delete-btn" onclick="deleteStudent(${s.no})" title="削除">🗑️</button>
     </div>
   `).join('');
@@ -1629,20 +1633,19 @@ async function deleteStudent(no) {
 }
 window.deleteStudent = deleteStudent;
 
-async function resetStudentCollection(no) {
-  const s = students.find(x => x.no === no);
-  if (!s) return;
-  const n = (s.collection || []).length;
-  if (n === 0) { alert(`${no}番さんの図鑑はまだ空です。`); return; }
-  if (!confirm(`${no}番さんの図鑑（${n}枚）をすべて消します。元に戻せません。\n\nよろしいですか？`)) return;
-  busy(true, '保存中…');
+/* 先生ページから、その児童の図鑑をそのまま開く */
+async function viewStudentCollection(no) {
+  busy(true, '読み込み中…');
   try {
-    await setDoc(STU(no), { collection: [] }, { merge: true });
-    await loadStudents();
-    renderStudentManageTab();
+    const snap = await getDoc(STU(no));
+    me = normalizeStudent(no, snap.data());
+    currentNo = no;
+    viewingAsTeacher = true;
+    renderCollection();
+    showScreen('screen-collection');
   } catch (e) { netError(e); } finally { busy(false); }
 }
-window.resetStudentCollection = resetStudentCollection;
+window.viewStudentCollection = viewStudentCollection;
 
 async function resetStudentPin(no) {
   if (!confirm(`${no}番のガチャのパスワードを ${INITIAL_STUDENT_PIN} に戻しますか？`)) return;
@@ -1977,15 +1980,16 @@ async function checkRestoreOne() {
     const cur  = normalizeStudent(no, snap.data());
     const curCol = cur.collection;
     const kinds  = a => [...new Set(a)].length;
+    const total  = (gmeta.chars || []).length;
     restoreTarget = { no, oldCol, curCol };
     prev.innerHTML =
-      `<b>${no}番</b>（「種」＝キャラクターの種類数、「枚」＝ダブりを含めて引いた総数）<br>` +
-      `・旧データの図鑑：<b>${kinds(oldCol)}</b>種 / <b>${oldCol.length}</b>枚<br>` +
-      `・今のクラウドの図鑑：<b>${kinds(curCol)}</b>種 / <b>${curCol.length}</b>枚<br><br>` +
-      `「今の図鑑に足す」→ <b>${kinds([...curCol, ...oldCol])}</b>種 / <b>${oldCol.length + curCol.length}</b>枚<br>` +
-      `「旧データで置き換える」→ <b>${kinds(oldCol)}</b>種 / <b>${oldCol.length}</b>枚` +
+      `<b>${no}番</b><br>` +
+      `・旧データの図鑑：<b>${kinds(oldCol)} / ${total}体</b><br>` +
+      `・今のクラウドの図鑑：<b>${kinds(curCol)} / ${total}体</b><br><br>` +
+      `「今の図鑑に足す」→ <b>${kinds([...curCol, ...oldCol])} / ${total}体</b><br>` +
+      `「旧データで置き換える」→ <b>${kinds(oldCol)} / ${total}体</b>` +
       `<br><br><span style="font-size:0.9em">図鑑が消えた子を戻すときは「足す」を選んでください` +
-      `（消えたあとに引いた分を残せます）。</span>`;
+      `（消えたあとに引いた分も残せます）。</span>`;
     acts.style.display = 'block';
   } catch (e) { netError(e); } finally { busy(false); }
 }
@@ -1998,10 +2002,9 @@ async function restoreOne(mode) {
   const msg = document.getElementById('restore-msg');
 
   const kinds = a => [...new Set(a)].length;
+  const total = (gmeta.chars || []).length;
   if (!confirm(
-    `${no}番さんの図鑑を\n` +
-    `  ${kinds(curCol)}種 / ${curCol.length}枚\n` +
-    `  → ${kinds(next)}種 / ${next.length}枚\n にします。\n\n` +
+    `${no}番さんの図鑑を ${kinds(curCol)}/${total}体 → ${kinds(next)}/${total}体 にします。\n\n` +
     (mode === 'append' ? '（今の図鑑に旧データを足します）' : '（旧データで置き換えます。今の図鑑は消えます）') +
     '\n\nよろしいですか？')) return;
 
@@ -2012,7 +2015,7 @@ async function restoreOne(mode) {
     renderStudentManageTab();
     renderCountTab();
     msg.style.color = '#81c784';
-    msg.textContent = `${no}番さんの図鑑を ${kinds(next)}種 / ${next.length}枚 に復元しました。`;
+    msg.textContent = `${no}番さんの図鑑を ${kinds(next)} / ${total}体 に復元しました。`;
     document.getElementById('restore-actions').style.display = 'none';
     restoreTarget = null;
   } catch (e) { netError(e); } finally { busy(false); }
@@ -2194,8 +2197,23 @@ async function renderStudentHome() {
 }
 window.renderStudentHome = renderStudentHome;
 
-function goCollection() { renderCollection(); showScreen('screen-collection'); }
+function goCollection() {
+  viewingAsTeacher = false;
+  renderCollection();
+  showScreen('screen-collection');
+}
 window.goCollection = goCollection;
+
+/* 図鑑は児童本人と先生の両方が開くので、戻り先を切り替える */
+function backFromCollection() {
+  if (viewingAsTeacher) {
+    viewingAsTeacher = false;
+    showScreen('screen-teacher');
+  } else {
+    showScreen('screen-student-home');
+  }
+}
+window.backFromCollection = backFromCollection;
 
 async function goGacha() {
   showScreen('screen-gacha');
@@ -2209,6 +2227,8 @@ window.goGacha = goGacha;
 function renderCollection() {
   if (!me) return;
   document.getElementById('collection-student-name').textContent = me.no;
+  document.getElementById('collection-teacher-tools').style.display =
+    viewingAsTeacher ? 'block' : 'none';
 
   const owned = me.collection || [];
   const chars = gmeta.chars || [];
@@ -2251,8 +2271,22 @@ window.openCharModal = openCharModal;
 function closeCharModal() { document.getElementById('char-modal').classList.remove('active'); }
 window.closeCharModal = closeCharModal;
 
-/* 図鑑のリセットは先生ページ（児童管理タブ）からのみ行う。
-   児童の図鑑画面には置かない（児童がPINを試せてしまうため）。 */
+/* 図鑑のリセットは先生ページから開いたときだけ。
+   児童が自分で開いた図鑑には表示しない。 */
+async function resetViewedCollection() {
+  if (!me || !viewingAsTeacher) return;
+  const kinds = [...new Set(me.collection || [])].length;
+  if (kinds === 0) { alert(`${me.no}番さんの図鑑はまだ空です。`); return; }
+  if (!confirm(`${me.no}番さんの図鑑（${kinds}体）をすべて消します。元に戻せません。\n\nよろしいですか？`)) return;
+  busy(true, '保存中…');
+  try {
+    await setDoc(STU(me.no), { collection: [] }, { merge: true });
+    me.collection = [];
+    renderCollection();
+    await loadStudents();
+  } catch (e) { netError(e); } finally { busy(false); }
+}
+window.resetViewedCollection = resetViewedCollection;
 
 /* =====================
    児童：ガチャ
