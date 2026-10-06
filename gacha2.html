@@ -1590,7 +1590,7 @@ function renderStudentManageTab() {
   el.innerHTML = students.map(s => `
     <div class="student-row">
       <div class="student-name">${s.no}番</div>
-      <div style="font-size:0.8em;color:#aaa">図鑑${(s.collection || []).length}枚</div>
+      <div style="font-size:0.8em;color:#aaa">図鑑 ${[...new Set(s.collection || [])].length}種 / ${(s.collection || []).length}枚</div>
       <div style="font-size:0.8em;color:#aaa">${s.gachaPinSet ? '🔒 設定済み' : '🔓 初期(' + INITIAL_STUDENT_PIN + ')'}</div>
       <button class="delete-btn" style="color:#4fc3f7" onclick="resetStudentPin(${s.no})" title="パスワードを初期化">🔑</button>
       <button class="delete-btn" style="color:#ffb74d" onclick="resetStudentCollection(${s.no})" title="図鑑をリセット">📖</button>
@@ -1975,13 +1975,15 @@ async function checkRestoreOne() {
   try {
     const snap = await getDoc(STU(no));
     const cur  = normalizeStudent(no, snap.data());
-    restoreTarget = { no, oldCol, curCol: cur.collection };
+    const curCol = cur.collection;
+    const kinds  = a => [...new Set(a)].length;
+    restoreTarget = { no, oldCol, curCol };
     prev.innerHTML =
-      `<b>${no}番</b><br>` +
-      `・旧データの図鑑：<b>${oldCol.length}</b>枚<br>` +
-      `・今のクラウドの図鑑：<b>${cur.collection.length}</b>枚<br><br>` +
-      `「今の図鑑に足す」→ <b>${oldCol.length + cur.collection.length}</b>枚になります<br>` +
-      `「旧データで置き換える」→ <b>${oldCol.length}</b>枚になります` +
+      `<b>${no}番</b>（「種」＝キャラクターの種類数、「枚」＝ダブりを含めて引いた総数）<br>` +
+      `・旧データの図鑑：<b>${kinds(oldCol)}</b>種 / <b>${oldCol.length}</b>枚<br>` +
+      `・今のクラウドの図鑑：<b>${kinds(curCol)}</b>種 / <b>${curCol.length}</b>枚<br><br>` +
+      `「今の図鑑に足す」→ <b>${kinds([...curCol, ...oldCol])}</b>種 / <b>${oldCol.length + curCol.length}</b>枚<br>` +
+      `「旧データで置き換える」→ <b>${kinds(oldCol)}</b>種 / <b>${oldCol.length}</b>枚` +
       `<br><br><span style="font-size:0.9em">図鑑が消えた子を戻すときは「足す」を選んでください` +
       `（消えたあとに引いた分を残せます）。</span>`;
     acts.style.display = 'block';
@@ -1995,8 +1997,11 @@ async function restoreOne(mode) {
   const next = mode === 'append' ? [...curCol, ...oldCol] : [...oldCol];
   const msg = document.getElementById('restore-msg');
 
+  const kinds = a => [...new Set(a)].length;
   if (!confirm(
-    `${no}番さんの図鑑を ${curCol.length}枚 → ${next.length}枚 にします。\n\n` +
+    `${no}番さんの図鑑を\n` +
+    `  ${kinds(curCol)}種 / ${curCol.length}枚\n` +
+    `  → ${kinds(next)}種 / ${next.length}枚\n にします。\n\n` +
     (mode === 'append' ? '（今の図鑑に旧データを足します）' : '（旧データで置き換えます。今の図鑑は消えます）') +
     '\n\nよろしいですか？')) return;
 
@@ -2007,7 +2012,7 @@ async function restoreOne(mode) {
     renderStudentManageTab();
     renderCountTab();
     msg.style.color = '#81c784';
-    msg.textContent = `${no}番さんの図鑑を ${next.length}枚 に復元しました。`;
+    msg.textContent = `${no}番さんの図鑑を ${kinds(next)}種 / ${next.length}枚 に復元しました。`;
     document.getElementById('restore-actions').style.display = 'none';
     restoreTarget = null;
   } catch (e) { netError(e); } finally { busy(false); }
