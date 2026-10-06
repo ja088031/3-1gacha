@@ -443,6 +443,23 @@
       filter: brightness(0);
       opacity: 0.85;
     }
+    .new-badge {
+      position: absolute;
+      top: 6px; left: 6px;
+      background: linear-gradient(135deg, #ff6fa3, #ff2d6f);
+      color: #fff;
+      font-size: 0.62em;
+      font-weight: bold;
+      padding: 3px 8px;
+      border-radius: 20px;
+      letter-spacing: 0.02em;
+      box-shadow: 0 0 10px rgba(255,45,111,0.9);
+      animation: newPulse 1.1s ease-in-out infinite alternate;
+    }
+    @keyframes newPulse {
+      from { transform: scale(0.93); }
+      to   { transform: scale(1.08); }
+    }
     .owned-badge {
       position: absolute;
       top: 6px; right: 6px;
@@ -1049,6 +1066,7 @@ const STUS  = () => collection(db, "students");
 
 const DEFAULT_TEACHER_PIN = '1234';
 const INITIAL_STUDENT_PIN = '1111';
+const NEW_BADGE_MS = 24 * 60 * 60 * 1000;   // 「New!」を出す期間（24時間）
 
 /* =====================
    STATE (クラウドのキャッシュ)
@@ -1104,7 +1122,9 @@ function normalizeStudent(no, data) {
     gachaCount:   d.gachaCount || 0,
     collection:   Array.isArray(d.collection) ? d.collection : [],
     gachaPin:     d.gachaPin || INITIAL_STUDENT_PIN,
-    gachaPinSet:  !!d.gachaPinSet
+    gachaPinSet:  !!d.gachaPinSet,
+    // はじめてそのキャラを手に入れた時刻（キャラID → ミリ秒）。「New!」表示に使う
+    firstGotAt:   (d.firstGotAt && typeof d.firstGotAt === 'object') ? d.firstGotAt : {}
   };
 }
 
@@ -2245,15 +2265,32 @@ function renderCollection() {
     el.innerHTML = '<p style="color:#aaa;text-align:center;padding:40px;width:100%">キャラクターがまだ登録されていません</p>';
     return;
   }
+  // 直近24時間に「はじめて」手に入れたキャラに New! を付ける
+  const gotAt   = me.firstGotAt || {};
+  const nowMs   = Date.now();
+  const isFresh = id => {
+    const t = gotAt[String(id)];
+    return typeof t === 'number' && (nowMs - t) < NEW_BADGE_MS;
+  };
+  const newCount = chars.filter(c => isFresh(c.id)).length;
+
+  const label = document.getElementById('collection-progress-label');
+  label.textContent = `${ownedCount} / ${total} 体コレクト（${pct}%）`;
+  if (newCount > 0) {
+    label.innerHTML += ` <span style="color:#ff5f8d;font-weight:bold">きょう ${newCount}体 ゲット！</span>`;
+  }
+
   el.innerHTML = chars.map(c => {
     const count = owned.filter(id => id === c.id).length;
     const hasIt = count > 0;
+    const fresh = hasIt && isFresh(c.id);
     return `
       <div class="collection-card" ${hasIt ? `onclick="openCharModal('${esc(c.image)}', '${esc(c.name).replace(/'/g, "\\'")}')" style="cursor:pointer"` : ''}>
         ${hasIt
           ? `<img src="images/${esc(c.image)}" alt="${esc(c.name)}" onerror="this.src=''">`
           : `<img class="silhouette-img" src="images/${esc(c.image)}" alt="？" onerror="this.outerHTML='<div class=&quot;silhouette&quot;>？</div>'">`
         }
+        ${fresh ? '<div class="new-badge">New!</div>' : ''}
         ${hasIt ? `<div class="owned-badge">×${count}</div>` : ''}
         <div class="char-label">${hasIt ? esc(c.name) : '？？？'}</div>
       </div>`;
@@ -2362,12 +2399,20 @@ async function startGacha() {
       const cur  = normalizeStudent(currentNo, snap.data());
       if ((cur.gachaCount || 0) <= 0) return null;
 
-      const pick = chars[Math.floor(Math.random() * chars.length)];
-      tx.set(ref, {
+      const pick  = chars[Math.floor(Math.random() * chars.length)];
+      const owned = cur.collection.filter(id => id === pick.id).length + 1;
+      const isNew = owned === 1;   // はじめて手に入れたキャラか
+
+      const patch = {
         gachaCount: cur.gachaCount - 1,
         collection: [...cur.collection, pick.id]
-      }, { merge: true });
-      return { pick, after: cur.gachaCount - 1, owned: cur.collection.filter(id => id === pick.id).length + 1 };
+      };
+      // はじめてのキャラだけ、手に入れた時刻を残す（「New!」表示に使う）
+      if (isNew) {
+        patch.firstGotAt = Object.assign({}, cur.firstGotAt, { [String(pick.id)]: now.getTime() });
+      }
+      tx.set(ref, patch, { merge: true });
+      return { pick, after: cur.gachaCount - 1, owned, isNew, gotAt: now.getTime() };
     });
   } catch (e) {
     busy(false);
@@ -2380,6 +2425,9 @@ async function startGacha() {
 
   me.gachaCount = drawn.after;
   me.collection = [...(me.collection || []), drawn.pick.id];
+  if (drawn.isNew) {
+    me.firstGotAt = Object.assign({}, me.firstGotAt, { [String(drawn.pick.id)]: drawn.gotAt });
+  }
   pendingChar = { char: drawn.pick, owned: drawn.owned };
 
   // 動画再生
