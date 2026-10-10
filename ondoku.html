@@ -1146,20 +1146,43 @@ function renderAlign(){
     if (al.path[k][0] > al.path[k-1][0] && al.path[k][1] > al.path[k-1][1]) diag++;
   }
   const diagRate = diag / Math.max(1, al.path.length - 1);
-  const ok = diagRate > 0.45 && al.cost < 3.0;
   const m = analyzeAlignment(al, child, ref);
+
+  /* 対照実験：お手本を逆向きにして照合する。
+     なめらかな斜めの線は「正しく対応づいた」ときだけでなく、特徴がまったく
+     一致せずDTWが仕方なく対角線を引いたときにも現れる。逆向き（＝内容の順序は
+     壊れるが、声や音の性質は同じ）と比べて、正順が明らかに良ければ本物。 */
+  const rev = {
+    fps: ref.fps, n: ref.n,
+    band: ref.band.slice().reverse(),
+    energy: ref.energy.slice().reverse(),
+    semi: ref.semi.slice().reverse()
+  };
+  const alRev = dtw(child, rev);
+  const revCost = alRev ? alRev.cost : null;
+  const gain = revCost ? (revCost - al.cost) / revCost : 0;   // 逆向きよりどれだけ良いか
+  const genuine = gain > 0.08;
+  const ok = genuine && diagRate > 0.45;
 
   box.innerHTML = `
     <p style="font-size:1.15em;margin-bottom:10px">
-      ${ok ? '<span style="color:#a5d6a7;font-weight:bold">✅ 対応づけできています</span>'
-           : '<span style="color:#ff8a80;font-weight:bold">⚠️ 対応づけが不安定です</span>'}
+      ${ok ? '<span style="color:#a5d6a7;font-weight:bold">✅ 内容が対応づいています</span>'
+           : '<span style="color:#ff8a80;font-weight:bold">⚠️ 内容が対応づいていません</span>'}
     </p>
     <table>
-      <tr><th>全体の時間</th><td>お手本の ${overall.toFixed(2)} 倍</td></tr>
+      <tr><th>対照テスト</th><td>
+        ${revCost === null ? "できませんでした" : `正順 ${al.cost.toFixed(2)} ／ 逆再生 ${revCost.toFixed(2)}
+        （正順が <b>${(gain*100).toFixed(0)}%</b> 良い）`}
+        <br><span class="note">お手本を逆再生したものと比べています。8%以上良ければ、
+        内容が本当に合っている証拠です。差がないなら、ただ対角線を引いているだけです。</span></td></tr>
+      <tr><th>全体の時間</th><td>お手本の ${overall.toFixed(2)} 倍
+        ${overall < 0.75 || overall > 1.9 ? '<br><span class="ng">⚠️ 読んだ範囲とお手本の範囲が ずれている可能性があります</span>' : ""}</td></tr>
       <tr><th>つっかえた所</th><td>${stumbles.length} か所
         ${stumbles.length ? `<br><span class="note">${stumbles.slice(0,5).map(s=>s.refT.toFixed(1)+"秒あたり").join(" / ")}</span>` : ""}</td></tr>
       <tr><th>経路のなめらかさ</th><td>${(diagRate*100).toFixed(0)} %<span class="note">（45%以上で良好）</span></td></tr>
-      <tr><th>照合の近さ</th><td>${al.cost.toFixed(2)}<span class="note">（小さいほど似ている。3.0未満で良好）</span></td></tr>
+      <tr><th>照合の近さ</th><td>${al.cost.toFixed(2)}
+        <span class="note">（声質や録音環境で大きく変わるため、この数字だけでは良否を判断できません。
+        上の対照テストで見てください）</span></td></tr>
     </table>
     <h3 style="margin-top:16px">お手本との 読み方の一致</h3>
     <table>
