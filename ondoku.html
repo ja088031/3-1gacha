@@ -918,11 +918,39 @@ function buildFeatures(frames, noiseFloor){
   const eMax = Math.max(...energy), eMin = 20 * Math.log10(noiseFloor);
   const eRange = Math.max(6, eMax - eMin);
   const energyN = energy.map(e => Math.max(0, Math.min(1, (e - eMin) / eRange)));
-  // 声の高さは各自の中央値からの半音差にする（大人と子どもを比べられるように）
-  const voiced = pitch.filter(p => p > 0);
-  const med = median(voiced) || 1;
-  const semi = pitch.map(p => p > 0 ? 12 * Math.log2(p / med) : null);
+  // 声の高さは各自の中央値からの半音差にする（大人と子どもを比べられるように）。
+  // 低い声ほど1オクターブ誤りが出やすく、それを放置すると抑揚の比較が壊れるので、
+  // 採点側と同じ補正をここでも必ずかける。
+  const semi = pitchToSemi(pitch);
   return { fps: FEAT_FPS, n, band, energy: energyN, semi };
+}
+
+// ピッチ列（無声は0）を、オクターブ誤りを直したうえで半音差に変換する
+function pitchToSemi(pitch){
+  let med = median(pitch.filter(p => p > 0)) || 1;
+  // 倍・半分に飛んでいる値を引き戻す（2段階ぶんまで）
+  const fold = (p) => {
+    if (p <= 0) return 0;
+    for (let k = 0; k < 2; k++){
+      if (p > med * 1.6) p /= 2;
+      else if (p < med / 1.6) p *= 2;
+      else break;
+    }
+    return p;
+  };
+  let f = pitch.map(fold);
+  med = median(f.filter(p => p > 0)) || 1;
+  f = f.map(fold);
+  // 有声の点だけを見て、一瞬の誤検出をならす
+  const out = new Array(f.length).fill(null);
+  for (let i = 0; i < f.length; i++){
+    if (f[i] <= 0) continue;
+    const win = [];
+    for (let j = Math.max(0, i-2); j <= Math.min(f.length-1, i+2); j++)
+      if (f[j] > 0) win.push(f[j]);
+    out[i] = 12 * Math.log2(median(win) / med);
+  }
+  return out;
 }
 
 // 2フレーム間の距離。スペクトルの形と音量の両方で見る
