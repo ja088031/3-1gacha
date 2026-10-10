@@ -994,6 +994,83 @@ function stretchCurve(al, A, B, win){
   return out;
 }
 
+/* 対応づけができた上で、お手本と「どれだけ同じ読み方か」を測る。
+   時間だけでなく、声の上がり下がり・間の位置・音の近さを使う。 */
+const PAUSE_E = 0.15, PAUSE_SEC = 0.25;
+
+function pauseRuns(F){
+  const runs = [], need = Math.round(PAUSE_SEC * F.fps);
+  let st = -1;
+  for (let i = 0; i <= F.n; i++){
+    const quiet = i < F.n && F.energy[i] < PAUSE_E;
+    if (quiet){ if (st < 0) st = i; }
+    else { if (st >= 0 && i - st >= need) runs.push([st, i - 1]); st = -1; }
+  }
+  return runs;
+}
+
+function analyzeAlignment(al, child, ref){
+  const P = al.path;
+  // 児童フレーム → お手本フレーム の対応表（複数対応は平均）
+  const c2r = new Float64Array(child.n).fill(-1);
+  for (const [i, j] of P) c2r[i] = c2r[i] < 0 ? j : (c2r[i] + j) / 2;
+  const r2c = new Float64Array(ref.n).fill(-1);
+  for (const [i, j] of P) r2c[j] = r2c[j] < 0 ? i : (r2c[j] + i) / 2;
+
+  /* --- 抑揚の一致度：対応する点どうしで、声の高さの動きが同じ形か --- */
+  const xs = [], ys = [];
+  for (let i = 0; i < child.n; i++){
+    const j = Math.round(c2r[i]);
+    if (j < 0 || j >= ref.n) continue;
+    if (child.semi[i] === null || ref.semi[j] === null) continue;
+    xs.push(child.semi[i]); ys.push(ref.semi[j]);
+  }
+  let pitchCorr = 0, pitchDiff = 0;
+  if (xs.length > 30){
+    const mx = xs.reduce((a,b)=>a+b,0)/xs.length, my = ys.reduce((a,b)=>a+b,0)/ys.length;
+    let sxy = 0, sxx = 0, syy = 0, sd = 0;
+    for (let k = 0; k < xs.length; k++){
+      const dx = xs[k]-mx, dy = ys[k]-my;
+      sxy += dx*dy; sxx += dx*dx; syy += dy*dy;
+      sd += (xs[k]-ys[k]) * (xs[k]-ys[k]);
+    }
+    pitchCorr = sxx && syy ? sxy / Math.sqrt(sxx*syy) : 0;
+    pitchDiff = Math.sqrt(sd / xs.length);
+  }
+
+  /* --- 間の一致度：お手本が区切る所で、児童も区切れているか --- */
+  const rp = pauseRuns(ref), cp = pauseRuns(child);
+  let matched = 0;
+  const missed = [];
+  for (const [a, b] of rp){
+    const ca = r2c[Math.max(0, a)], cb = r2c[Math.min(ref.n-1, b)];
+    const hit = cp.some(([x, y]) => x <= cb + child.fps*0.5 && y >= ca - child.fps*0.5);
+    if (hit) matched++; else missed.push(a / ref.fps);
+  }
+  const pauseRecall = rp.length ? matched / rp.length : 1;
+  // お手本にない余分な間（つっかえの別の見え方）
+  let extra = 0;
+  for (const [x, y] of cp){
+    const ra = c2r[Math.max(0,x)], rb = c2r[Math.min(child.n-1,y)];
+    if (!rp.some(([a,b]) => a <= rb + ref.fps*0.5 && b >= ra - ref.fps*0.5)) extra++;
+  }
+
+  /* --- お手本と音が離れている箇所：経路に沿った距離の山 --- */
+  const dists = P.map(([i, j]) => featDist(child, ref, i, j));
+  const medD = median(dists) || 1;
+  const w = Math.round(child.fps * 0.8);
+  const devs = [];
+  for (let k = 0; k + w < P.length; k += Math.max(1, Math.round(w/2))){
+    let s = 0;
+    for (let q = k; q < k + w; q++) s += dists[q];
+    devs.push({ refT: P[k][1] / ref.fps, rel: (s / w) / medD });
+  }
+  const odd = devs.filter(d => d.rel > 1.45);
+
+  return { pitchCorr, pitchDiff, pauseRecall, refPauses: rp.length, missedPauses: missed,
+           extraPauses: extra, devs, odd, medDist: medD };
+}
+
 /* ========== 対応づけの可視化（先生が目で確かめるための画面） ========== */
 function renderAlign(){
   show("screen-align");
@@ -1019,6 +1096,7 @@ function renderAlign(){
   }
   const diagRate = diag / Math.max(1, al.path.length - 1);
   const ok = diagRate > 0.45 && al.cost < 3.0;
+  const m = analyzeAlignment(al, child, ref);
 
   box.innerHTML = `
     <p style="font-size:1.15em;margin-bottom:10px">
@@ -1031,6 +1109,17 @@ function renderAlign(){
         ${stumbles.length ? `<br><span class="note">${stumbles.slice(0,5).map(s=>s.refT.toFixed(1)+"秒あたり").join(" / ")}</span>` : ""}</td></tr>
       <tr><th>経路のなめらかさ</th><td>${(diagRate*100).toFixed(0)} %<span class="note">（45%以上で良好）</span></td></tr>
       <tr><th>照合の近さ</th><td>${al.cost.toFixed(2)}<span class="note">（小さいほど似ている。3.0未満で良好）</span></td></tr>
+    </table>
+    <h3 style="margin-top:16px">お手本との 読み方の一致</h3>
+    <table>
+      <tr><th>抑揚の一致度</th><td>${(m.pitchCorr*100).toFixed(0)} %
+        <span class="note">（声の上下の形がお手本とどれだけ同じか。ずれ ${m.pitchDiff.toFixed(1)}半音）</span></td></tr>
+      <tr><th>間の一致度</th><td>${(m.pauseRecall*100).toFixed(0)} %
+        <span class="note">（お手本の区切り ${m.refPauses} か所中 ${Math.round(m.pauseRecall*m.refPauses)} か所で区切れた）</span>
+        ${m.missedPauses.length ? `<br><span class="note">区切れなかった所: ${m.missedPauses.slice(0,5).map(t=>t.toFixed(1)+"秒").join(" / ")}</span>` : ""}</td></tr>
+      <tr><th>よけいな間</th><td>${m.extraPauses} か所<span class="note">（お手本にない所で止まった）</span></td></tr>
+      <tr><th>読み方がちがう所<br><span class="note">（参考・精度低め）</span></th><td>${m.odd.length} か所
+        ${m.odd.length ? `<br><span class="note">${m.odd.slice(0,5).map(d=>d.refT.toFixed(1)+"秒あたり").join(" / ")}</span>` : ""}</td></tr>
     </table>`;
 
   drawStretch(curve, med);
