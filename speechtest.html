@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>端末内 音声認識テスト</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Hiragino Maru Gothic Pro', 'BIZ UDGothic', sans-serif;
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+    min-height: 100vh; color: #fff; padding: 20px; line-height: 1.7;
+  }
+  h1 { font-size: 1.5em; margin-bottom: 6px; }
+  .lead { color: #bcd; font-size: 0.95em; margin-bottom: 18px; }
+  .panel { background: rgba(255,255,255,0.08); border-radius: 16px; padding: 18px; margin-bottom: 16px; max-width: 760px; }
+  .panel h2 { font-size: 1.1em; color: #ffd700; margin-bottom: 10px; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.93em; }
+  th, td { padding: 8px 6px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.15); vertical-align: top; }
+  th { width: 15em; color: #cde; font-weight: normal; }
+  .ok { color: #a5d6a7; font-weight: bold; }
+  .ng { color: #ff8a80; font-weight: bold; }
+  .warn { color: #ffd54f; font-weight: bold; }
+  button {
+    font-family: inherit; font-size: 1.05em; font-weight: bold; padding: 12px 26px;
+    border: none; border-radius: 50px; cursor: pointer; margin: 6px 6px 0 0;
+    background: linear-gradient(135deg, #4fc3f7, #0288d1); color: #fff;
+  }
+  button:disabled { opacity: 0.5; cursor: default; }
+  button.gold { background: linear-gradient(135deg, #ffd700, #ffaa00); color: #1a1a2e; }
+  button.green { background: linear-gradient(135deg, #81c784, #388e3c); }
+  #said { min-height: 3em; background: rgba(0,0,0,0.3); border-radius: 10px; padding: 12px; font-size: 1.15em; }
+  textarea { width: 100%; height: 170px; margin-top: 10px; font-family: monospace; font-size: 12px;
+    background: rgba(0,0,0,0.35); color: #fff; border: 1px solid rgba(255,255,255,0.25); border-radius: 10px; padding: 10px; }
+  .note { font-size: 0.85em; color: #9ab; }
+</style>
+</head>
+<body>
+
+<h1>🎙 端末内 音声認識テスト</h1>
+<p class="lead">
+音読アプリで「読み間違い」を調べられるようにするための事前確認です。<br>
+<b>音声を外部に送らず、端末の中だけで文字に起こせるか</b>を調べます。<br>
+<span class="note">※このページは調査のみで、何も保存しません。学校のChromebookで実行してください。</span>
+</p>
+
+<div class="panel">
+  <h2>1. 調べる</h2>
+  <button class="gold" id="btn-check">この端末を調べる</button>
+  <table id="result"><tbody></tbody></table>
+</div>
+
+<div class="panel" id="panel-install" style="display:none">
+  <h2>2. 端末内モデルの用意</h2>
+  <p class="note" style="margin-bottom:10px">
+    日本語の認識データが端末にまだ無い状態です。下のボタンで用意できます（数十MB〜。時間がかかることがあります）。
+  </p>
+  <button class="green" id="btn-install">日本語データを用意する</button>
+  <p id="install-msg" style="margin-top:10px"></p>
+</div>
+
+<div class="panel" id="panel-try" style="display:none">
+  <h2>3. 実際に話して試す</h2>
+  <p class="note" style="margin-bottom:10px">
+    ボタンを押して、教科書を10秒ほど音読してみてください。正しく文字になるか確認します。
+  </p>
+  <p style="background:rgba(255,138,128,0.15);border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:0.9em">
+    ⚠️ <b>このテストは必ず先生ご自身の声で行ってください。</b>
+    「端末内で処理する」指定が効いていれば音声は外に出ませんが、<b>その指定が無視された場合は
+    音声がGoogleに送られます</b>。効いているかどうかが、まさにこのテストで分かることなので、
+    児童の声では行わないでください。
+  </p>
+  <button class="green" id="btn-start">話してみる</button>
+  <button id="btn-stop" disabled>とめる</button>
+  <p style="margin:12px 0 6px" class="note">認識された文字：</p>
+  <div id="said">—</div>
+  <p id="try-msg" style="margin-top:10px"></p>
+</div>
+
+<div class="panel">
+  <h2>結果のコピー</h2>
+  <p class="note">この内容をそのまま開発者に伝えてください。</p>
+  <textarea id="summary" readonly placeholder="調べると ここに結果が出ます"></textarea>
+</div>
+
+<script>
+const log = [];
+const rows = document.querySelector("#result tbody");
+function add(label, value, cls){
+  const tr = document.createElement("tr");
+  tr.innerHTML = `<th>${label}</th><td class="${cls||''}">${value}</td>`;
+  rows.appendChild(tr);
+  log.push(`${label}: ${String(value).replace(/<[^>]+>/g,'')}`);
+  document.getElementById("summary").value = log.join("\n");
+}
+
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let onDeviceState = null;
+
+document.getElementById("btn-check").addEventListener("click", async () => {
+  rows.innerHTML = ""; log.length = 0;
+  log.push("=== 端末内 音声認識テスト ===", new Date().toLocaleString());
+
+  add("ブラウザ", navigator.userAgent.slice(0, 120));
+  add("音声認識API", SR ? "あり ✅" : "なし ❌", SR ? "ok" : "ng");
+  if (!SR){
+    add("判定", "このブラウザでは音声認識そのものが使えません", "ng");
+    return;
+  }
+
+  // 端末内処理のための拡張が実装されているか
+  const hasAvail = typeof SR.availableOnDevice === "function";
+  const hasInstall = typeof SR.installOnDevice === "function";
+  add("端末内処理の対応 (availableOnDevice)", hasAvail ? "あり ✅" : "なし ❌", hasAvail ? "ok" : "ng");
+  add("端末内データの導入 (installOnDevice)", hasInstall ? "あり ✅" : "なし ❌", hasInstall ? "ok" : "ng");
+
+  let hasFlag = false;
+  try { const r = new SR(); hasFlag = ("processLocally" in r); } catch(e){}
+  add("端末内指定 (processLocally)", hasFlag ? "あり ✅" : "なし ❌", hasFlag ? "ok" : "ng");
+
+  if (hasAvail){
+    try {
+      onDeviceState = await SR.availableOnDevice("ja-JP");
+      const s = String(onDeviceState);
+      const good = s === "available" || s === "true";
+      add("日本語の端末内データ", s, good ? "ok" : "warn");
+      document.getElementById("panel-install").style.display =
+        (s === "downloadable" || s === "downloading" || s === "false") ? "" : "none";
+      if (good) document.getElementById("panel-try").style.display = "";
+    } catch(e){
+      add("日本語の端末内データ", "確認できず: " + e.message, "ng");
+    }
+  }
+
+  if (!hasAvail && !hasFlag){
+    add("判定", "端末内での音声認識には未対応です（使うなら音声が外部に送られます）", "ng");
+  } else if (onDeviceState === "available" || onDeviceState === "true"){
+    add("判定", "端末内だけで音声認識できます ✅", "ok");
+  } else if (hasAvail){
+    add("判定", "対応はしていますが、日本語データの用意が必要です", "warn");
+  } else {
+    // processLocally はあるが、対応状況を問い合わせる手段がない場合
+    add("判定", "端末内処理を指定できますが、対応しているか確認する手段がありません。" +
+                "下の「3. 実際に話して試す」で確かめてください", "warn");
+  }
+  // 音声認識自体があるなら、実地で試せるようにする（エラー内容が最大の手がかりになる）
+  if (SR) document.getElementById("panel-try").style.display = "";
+});
+
+document.getElementById("btn-install").addEventListener("click", async (ev) => {
+  const msg = document.getElementById("install-msg");
+  ev.target.disabled = true; msg.textContent = "用意しています…（時間がかかります）";
+  try {
+    const r = await SR.installOnDevice("ja-JP");
+    msg.innerHTML = `<span class="ok">完了しました（${r}）。もう一度「この端末を調べる」を押してください。</span>`;
+    log.push("installOnDevice: " + r);
+  } catch(e){
+    msg.innerHTML = `<span class="ng">用意できませんでした: ${e.message}</span>`;
+    log.push("installOnDevice エラー: " + e.message);
+  }
+  document.getElementById("summary").value = log.join("\n");
+  ev.target.disabled = false;
+});
+
+let rec = null;
+document.getElementById("btn-start").addEventListener("click", () => {
+  const said = document.getElementById("said"), msg = document.getElementById("try-msg");
+  said.textContent = "…"; msg.textContent = "";
+  try {
+    rec = new SR();
+    rec.lang = "ja-JP";
+    rec.continuous = true;
+    rec.interimResults = true;
+    // 端末内処理を要求する。できない場合はエラーになり、外部には送られない想定。
+    try { rec.processLocally = true; } catch(e){}
+    let finalText = "";
+    rec.onresult = (e) => {
+      let interim = "";
+      for (let i = e.resultIndex; i < e.results.length; i++){
+        const t = e.results[i][0].transcript;
+        if (e.results[i].isFinal) finalText += t; else interim += t;
+      }
+      said.textContent = finalText + interim || "…";
+    };
+    rec.onerror = (e) => {
+      msg.innerHTML = `<span class="ng">エラー: ${e.error}</span>`;
+      log.push("認識エラー: " + e.error);
+      document.getElementById("summary").value = log.join("\n");
+    };
+    rec.onend = () => {
+      document.getElementById("btn-start").disabled = false;
+      document.getElementById("btn-stop").disabled = true;
+      log.push("認識結果: " + (finalText || "(なし)"));
+      document.getElementById("summary").value = log.join("\n");
+    };
+    rec.start();
+    document.getElementById("btn-start").disabled = true;
+    document.getElementById("btn-stop").disabled = false;
+  } catch(e){
+    msg.innerHTML = `<span class="ng">開始できませんでした: ${e.message}</span>`;
+  }
+});
+
+document.getElementById("btn-stop").addEventListener("click", () => { if (rec) rec.stop(); });
+</script>
+</body>
+</html>
