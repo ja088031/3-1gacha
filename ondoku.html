@@ -1176,7 +1176,9 @@ function renderAlign(){
         <br><span class="note">お手本を逆再生したものと比べています。8%以上良ければ、
         内容が本当に合っている証拠です。差がないなら、ただ対角線を引いているだけです。</span></td></tr>
       <tr><th>全体の時間</th><td>お手本の ${overall.toFixed(2)} 倍
-        ${overall < 0.75 || overall > 1.9 ? '<br><span class="ng">⚠️ 読んだ範囲とお手本の範囲が ずれている可能性があります</span>' : ""}</td></tr>
+        ${overall < 0.7 || overall > 2.0 ? `<br><span class="note">お手本とかなり差があります。
+        読んだ範囲がずれているか、お手本が間を長く取ったゆっくりな朗読かのどちらかです
+        （下の対照テストが良好なら、範囲は合っています）</span>` : ""}</td></tr>
       <tr><th>つっかえた所</th><td>${stumbles.length} か所
         ${stumbles.length ? `<br><span class="note">${stumbles.slice(0,5).map(s=>s.refT.toFixed(1)+"秒あたり").join(" / ")}</span>` : ""}</td></tr>
       <tr><th>経路のなめらかさ</th><td>${(diagRate*100).toFixed(0)} %<span class="note">（45%以上で良好）</span></td></tr>
