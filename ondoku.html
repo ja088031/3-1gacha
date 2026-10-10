@@ -1095,8 +1095,31 @@ function analyzeAlignment(al, child, ref){
   }
   const odd = devs.filter(d => d.rel > 1.45);
 
+  /* --- 読み飛ばし：お手本は進んでいるのに、児童がほとんど進んでいない区間 ---
+     行を飛ばして読むと、お手本の該当部分を一瞬で通過するため、対応づけの経路が
+     横に寝る。音声認識を使わずに「飛ばした」ことだけは、これで分かる。 */
+  const skips = [];
+  {
+    const W = Math.round(ref.fps * 1.0);   // お手本側1秒ぶんずつ見る
+    let k = 0;
+    while (k < P.length){
+      let k2 = k;
+      while (k2 < P.length && P[k2][1] - P[k][1] < W) k2++;
+      if (k2 >= P.length) break;
+      const childSec = (P[k2][0] - P[k][0]) / child.fps;
+      const refSec = (P[k2][1] - P[k][1]) / ref.fps;
+      if (childSec < refSec * 0.3){
+        const at = P[k][1] / ref.fps;
+        const last = skips[skips.length - 1];
+        if (last && at - last.endT < 1.2) last.endT = P[k2][1] / ref.fps;   // 続きならまとめる
+        else skips.push({ refT: at, endT: P[k2][1] / ref.fps });
+      }
+      k = k2;
+    }
+  }
+
   return { pitchCorr, pitchDiff, pauseRecall, refPauses: rp.length, missedPauses: missed,
-           extraPauses: extra, devs, odd, medDist: medD };
+           extraPauses: extra, devs, odd, medDist: medD, skips };
 }
 
 /* ========== 対応づけの可視化（先生が目で確かめるための画面） ========== */
@@ -1146,6 +1169,8 @@ function renderAlign(){
         <span class="note">（お手本の区切り ${m.refPauses} か所中 ${Math.round(m.pauseRecall*m.refPauses)} か所で区切れた）</span>
         ${m.missedPauses.length ? `<br><span class="note">区切れなかった所: ${m.missedPauses.slice(0,5).map(t=>t.toFixed(1)+"秒").join(" / ")}</span>` : ""}</td></tr>
       <tr><th>よけいな間</th><td>${m.extraPauses} か所<span class="note">（お手本にない所で止まった）</span></td></tr>
+      <tr><th>読み飛ばし</th><td>${m.skips.length ? `<span class="ng">${m.skips.length} か所</span>` : "なし"}
+        ${m.skips.length ? `<br><span class="note">${m.skips.slice(0,5).map(s=>`お手本の ${s.refT.toFixed(1)}〜${s.endT.toFixed(1)}秒`).join(" / ")}</span>` : ""}</td></tr>
       <tr><th>読み方がちがう所<br><span class="note">（参考・精度低め）</span></th><td>${m.odd.length} か所
         ${m.odd.length ? `<br><span class="note">${m.odd.slice(0,5).map(d=>d.refT.toFixed(1)+"秒あたり").join(" / ")}</span>` : ""}</td></tr>
     </table>`;
