@@ -578,6 +578,107 @@
       position: relative;
       z-index: 1;
     }
+    /* ===== 10連ガチャの結果 ===== */
+    /* 10連ボタンは画像の中（ガチャを回すボタンの下あたり）に重ねる。
+       画像が大きいので、下に並べると画面外になって児童が気づけないため。 */
+    #gacha-pull10-area {
+      display: none;
+      position: absolute;
+      left: 0; right: 0;
+      top: 60%;
+      text-align: center;
+      z-index: 2;
+    }
+    #gacha-pull10-btn {
+      font-size: clamp(0.8em, 2.1vw, 1.15em);
+      padding: clamp(8px, 1.4vw, 14px) clamp(18px, 3vw, 36px);
+      min-width: 0;
+      white-space: nowrap;
+      border: 2px solid rgba(255,255,255,0.85);
+    }
+    #gacha-multi-wrap {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;          /* 光線のはみ出しを隠す */
+      background: radial-gradient(circle, rgba(255,180,0,0.3) 0%, rgba(10,10,30,0.95) 70%);
+      animation: popIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+    #gacha-multi-wrap::before {
+      content: '';
+      position: absolute;
+      inset: -60%;
+      background: repeating-conic-gradient(from 0deg, rgba(255,215,0,0.15) 0deg 10deg, transparent 10deg 20deg);
+      animation: rotateRays 10s linear infinite;
+      z-index: 0;
+    }
+    /* 中身だけをスクロールさせる。背景の光線はスクロールしない */
+    #gacha-multi-inner {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 14px;
+      width: 100%;
+      max-height: 100%;
+      overflow-y: auto;
+      padding: 20px;
+    }
+    #gacha-multi-title {
+      font-size: 1.8em;
+      font-weight: bold;
+      color: #ffd700;
+      text-shadow: 0 0 10px #ffd700, 0 0 24px #ffaa00;
+      text-align: center;
+    }
+    #gacha-multi-summary {
+      font-size: 1.1em;
+      color: #fff;
+      text-align: center;
+    }
+    #gacha-multi-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 10px;
+      width: 100%;
+      max-width: 680px;
+    }
+    @media (max-width: 560px) {
+      #gacha-multi-grid { grid-template-columns: repeat(3, 1fr); }
+    }
+    .multi-card {
+      position: relative;
+      background: rgba(10,10,30,0.65);
+      border: 2px solid rgba(255,215,0,0.5);
+      border-radius: 12px;
+      padding: 6px;
+      text-align: center;
+      animation: popIn 0.45s cubic-bezier(0.175, 0.885, 0.32, 1.275) backwards;
+    }
+    .multi-card.is-new {
+      border-color: #ff2d6f;
+      box-shadow: 0 0 14px rgba(255,45,111,0.8);
+    }
+    .multi-card img {
+      width: 100%;
+      aspect-ratio: 1;
+      object-fit: cover;
+      border-radius: 8px;
+      display: block;
+      background: #222;
+    }
+    .multi-card .multi-name {
+      font-size: 0.72em;
+      margin-top: 4px;
+      color: #eee;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
     #gacha-flash {
       position: fixed;
       inset: 0;
@@ -993,7 +1094,10 @@
   <!-- ガチャボタン -->
   <div id="gacha-btn-area">
     <div id="gacha-bg-wrap">
-      <button id="gacha-pull-btn" onclick="startGacha()" aria-label="ガチャを回す"></button>
+      <button id="gacha-pull-btn" onclick="startGacha(1)" aria-label="ガチャを回す"></button>
+      <div id="gacha-pull10-area">
+        <button class="btn btn-gold" id="gacha-pull10-btn" onclick="startGacha(10)">🎊 10れんガチャ！</button>
+      </div>
     </div>
     <p id="gacha-no-count" style="display:none;margin-top:12px">ガチャのこりが0回です。がんばってゴールドシールをもらおう！</p>
     <p id="gacha-closed" style="display:none;margin-top:12px"></p>
@@ -1016,6 +1120,16 @@
     <div id="gacha-result-name"></div>
     <div id="gacha-dup-label" style="color:#aaa;font-size:0.9em"></div>
     <button class="btn btn-blue" onclick="showScreen('screen-student-home')">もどる</button>
+  </div>
+
+  <!-- 10連の結果 -->
+  <div id="gacha-multi-wrap">
+    <div id="gacha-multi-inner">
+      <div id="gacha-multi-title">🎊 10れんガチャ けっか 🎊</div>
+      <div id="gacha-multi-summary"></div>
+      <div id="gacha-multi-grid"></div>
+      <button class="btn btn-blue" onclick="showScreen('screen-student-home')">もどる</button>
+    </div>
   </div>
 </div>
 
@@ -2336,12 +2450,15 @@ async function renderGachaScreen() {
   document.getElementById('gacha-video-wrap').style.display  = 'none';
   document.getElementById('gacha-tap-prompt').style.display  = 'none';
   document.getElementById('gacha-result-wrap').style.display = 'none';
+  document.getElementById('gacha-multi-wrap').style.display  = 'none';
   document.getElementById('gacha-video').pause();
 
   const wrap    = document.getElementById('gacha-bg-wrap');
+  const btn10   = document.getElementById('gacha-pull10-area');
   const noCount = document.getElementById('gacha-no-count');
   const closed  = document.getElementById('gacha-closed');
   wrap.style.display = 'none';
+  btn10.style.display = 'none';
   noCount.style.display = 'none';
   closed.style.display = 'none';
 
@@ -2365,22 +2482,46 @@ async function renderGachaScreen() {
     closed.innerHTML = closedMessage(st);
     return;
   }
-  if ((me.gachaCount || 0) > 0) {
+  const count = me.gachaCount || 0;
+  if (count > 0) {
     wrap.style.display = 'block';
+    // 10回以上たまっている子だけ、まとめて引けるようにする
+    if (count >= 10) btn10.style.display = 'block';
   } else {
     noCount.style.display = 'block';
   }
 }
 window.renderGachaScreen = renderGachaScreen;
 
-let pendingChar = null;
+let pendingDraw = null;   // { picks: [{char, owned, isNew}], n }
 
-async function startGacha() {
+/* times回ぶんの抽選。Firestoreには触らない純粋な処理。
+   同じ10連の中でダブったときも「2枚目」と数えられるよう、
+   引くたびに col を伸ばしながら判定する。 */
+function drawPicks(chars, collection, firstGotAt, times, nowMs) {
+  const col   = [...collection];
+  const got   = Object.assign({}, firstGotAt);
+  const picks = [];
+  for (let i = 0; i < times; i++) {
+    const pick  = chars[Math.floor(Math.random() * chars.length)];
+    const owned = col.filter(id => id === pick.id).length + 1;
+    const isNew = owned === 1;   // はじめて手に入れたキャラか
+    // はじめてのキャラだけ、手に入れた時刻を残す（「New!」表示に使う）
+    if (isNew) got[String(pick.id)] = nowMs;
+    col.push(pick.id);
+    picks.push({ char: pick, owned, isNew });
+  }
+  return { picks, col, firstGotAt: got };
+}
+
+/* n回まとめて引く。1回でも10回でも同じ処理を通す。 */
+async function startGacha(n) {
   if (!currentNo) return;
+  const times = (n === 10) ? 10 : 1;
   const chars = gmeta.chars || [];
   if (chars.length === 0) { alert('キャラクターが登録されていません。'); return; }
 
-  busy(true, 'ガチャを じゅんびちゅう…');
+  busy(true, times === 10 ? '10れんガチャ じゅんびちゅう…' : 'ガチャを じゅんびちゅう…');
   let drawn = null;
   try {
     // サーバー時刻で時間帯を再確認（引く直前）
@@ -2397,22 +2538,15 @@ async function startGacha() {
       const ref  = STU(currentNo);
       const snap = await tx.get(ref);
       const cur  = normalizeStudent(currentNo, snap.data());
-      if ((cur.gachaCount || 0) <= 0) return null;
+      if ((cur.gachaCount || 0) < times) return null;   // 回数が足りなければ何もしない
 
-      const pick  = chars[Math.floor(Math.random() * chars.length)];
-      const owned = cur.collection.filter(id => id === pick.id).length + 1;
-      const isNew = owned === 1;   // はじめて手に入れたキャラか
-
-      const patch = {
-        gachaCount: cur.gachaCount - 1,
-        collection: [...cur.collection, pick.id]
-      };
-      // はじめてのキャラだけ、手に入れた時刻を残す（「New!」表示に使う）
-      if (isNew) {
-        patch.firstGotAt = Object.assign({}, cur.firstGotAt, { [String(pick.id)]: now.getTime() });
-      }
-      tx.set(ref, patch, { merge: true });
-      return { pick, after: cur.gachaCount - 1, owned, isNew, gotAt: now.getTime() };
+      const res = drawPicks(chars, cur.collection, cur.firstGotAt, times, now.getTime());
+      tx.set(ref, {
+        gachaCount: cur.gachaCount - times,
+        collection: res.col,
+        firstGotAt: res.firstGotAt
+      }, { merge: true });
+      return { picks: res.picks, after: cur.gachaCount - times, col: res.col, firstGotAt: res.firstGotAt };
     });
   } catch (e) {
     busy(false);
@@ -2424,16 +2558,16 @@ async function startGacha() {
   if (!drawn) { await renderGachaScreen(); return; }
 
   me.gachaCount = drawn.after;
-  me.collection = [...(me.collection || []), drawn.pick.id];
-  if (drawn.isNew) {
-    me.firstGotAt = Object.assign({}, me.firstGotAt, { [String(drawn.pick.id)]: drawn.gotAt });
-  }
-  pendingChar = { char: drawn.pick, owned: drawn.owned };
+  me.collection = drawn.col;
+  me.firstGotAt = drawn.firstGotAt;
+  pendingDraw = { picks: drawn.picks, n: times };
 
-  // 動画再生
-  const videoFile = drawn.pick.rare
+  // 動画は1回だけ。レアが1体でも出ていればレア演出にする
+  const anyRare = drawn.picks.some(p => p.char.rare);
+  const lead    = drawn.picks[0].char;
+  const videoFile = anyRare
     ? 'videos/rare.mp4'
-    : (drawn.pick.gender === 'girl' ? 'videos/girl.mp4' : 'videos/boy.mp4');
+    : (lead.gender === 'girl' ? 'videos/girl.mp4' : 'videos/boy.mp4');
   const video = document.getElementById('gacha-video');
   video.src = videoFile;
   video.currentTime = 0;
@@ -2442,6 +2576,7 @@ async function startGacha() {
   document.getElementById('gacha-video-wrap').style.display  = 'block';
   document.getElementById('gacha-tap-prompt').style.display  = 'none';
   document.getElementById('gacha-result-wrap').style.display = 'none';
+  document.getElementById('gacha-multi-wrap').style.display  = 'none';
 
   video.play().catch(() => onVideoEnd());
   video.onended = onVideoEnd;
@@ -2454,22 +2589,38 @@ function onVideoEnd() {
 }
 
 function revealResult() {
-  if (!pendingChar) return;
-  const c = pendingChar.char;
+  if (!pendingDraw) return;
+  const { picks, n } = pendingDraw;
 
   const flash = document.getElementById('gacha-flash');
   flash.classList.remove('flash-active');
   void flash.offsetWidth;
   flash.classList.add('flash-active');
 
-  document.getElementById('gacha-tap-prompt').style.display  = 'none';
-  document.getElementById('gacha-result-wrap').style.display = 'flex';
-  document.getElementById('gacha-result-img').src = 'images/' + c.image;
-  document.getElementById('gacha-result-name').textContent = '✨ ' + c.name + ' ✨';
-  document.getElementById('gacha-dup-label').textContent =
-    pendingChar.owned > 1 ? `（${pendingChar.owned}枚目）` : '（はじめてゲット！🎉）';
+  document.getElementById('gacha-tap-prompt').style.display = 'none';
 
-  pendingChar = null;
+  if (n === 1) {
+    const p = picks[0];
+    document.getElementById('gacha-result-wrap').style.display = 'flex';
+    document.getElementById('gacha-result-img').src = 'images/' + p.char.image;
+    document.getElementById('gacha-result-name').textContent = '✨ ' + p.char.name + ' ✨';
+    document.getElementById('gacha-dup-label').textContent =
+      p.owned > 1 ? `（${p.owned}枚目）` : '（はじめてゲット！🎉）';
+  } else {
+    const newCount = picks.filter(p => p.isNew).length;
+    document.getElementById('gacha-multi-summary').innerHTML = newCount > 0
+      ? `あたらしく <b style="color:#ff6fa3;font-size:1.3em">${newCount}</b> 体 ゲット！`
+      : 'ぜんぶ ダブりだったね…つぎに きたいしよう！';
+    document.getElementById('gacha-multi-grid').innerHTML = picks.map((p, i) => `
+      <div class="multi-card${p.isNew ? ' is-new' : ''}" style="animation-delay:${(i * 0.08).toFixed(2)}s">
+        <img src="images/${esc(p.char.image)}" alt="${esc(p.char.name)}" onerror="this.src=''">
+        ${p.isNew ? '<div class="new-badge">New!</div>' : `<div class="owned-badge">×${p.owned}</div>`}
+        <div class="multi-name">${esc(p.char.name)}</div>
+      </div>`).join('');
+    document.getElementById('gacha-multi-wrap').style.display = 'flex';
+  }
+
+  pendingDraw = null;
   fireSparkles();
 }
 window.revealResult = revealResult;
