@@ -969,6 +969,24 @@
       <p id="window-msg" style="margin-top:8px;font-size:0.9em;min-height:1.2em"></p>
     </div>
 
+    <div class="section-title">未所持キャラの出やすさ</div>
+    <div class="add-form">
+      <p style="font-size:0.85em;color:#aaa;margin-bottom:12px">
+        まだ持っていないキャラクターを少し出やすくできます。<br>
+        被りが出なくなるわけではありません。1回ガチャ・10連ガチャの両方に適用されます。
+      </p>
+      <div class="form-row">
+        <select id="unowned-boost" style="flex:1">
+          <option value="1">通常（全キャラ同じ確率）</option>
+          <option value="1.25">少し上げる（1.25倍）</option>
+          <option value="1.5">おすすめ（1.5倍）</option>
+          <option value="2">かなり上げる（2倍）</option>
+        </select>
+        <button class="btn btn-blue btn-sm" onclick="saveUnownedBoost()">保存</button>
+      </div>
+      <p id="unowned-boost-msg" style="margin-top:8px;font-size:0.9em;min-height:1.2em"></p>
+    </div>
+
     <div class="section-title">お休みの日（引けない日）</div>
     <div class="add-form">
       <p style="font-size:0.85em;color:#aaa;margin-bottom:12px">
@@ -1220,6 +1238,7 @@ function defaultMeta() {
     alwaysOpen: false,
     blockWeekends: true,
     blockHolidays: true,
+    unownedBoost: 1.5,
     closedDates: [],
     openDates: [],
     windows: [
@@ -1797,6 +1816,7 @@ function renderWindowTab() {
   document.getElementById('always-open').checked    = !!gmeta.alwaysOpen;
   document.getElementById('block-weekends').checked = gmeta.blockWeekends !== false;
   document.getElementById('block-holidays').checked = gmeta.blockHolidays !== false;
+  document.getElementById('unowned-boost').value = String(Number(gmeta.unownedBoost) || 1.5);
   renderDateLists();
   renderTodayStatus();
   const el = document.getElementById('window-list');
@@ -1812,6 +1832,25 @@ function renderWindowTab() {
       ? '<button class="btn btn-blue btn-sm" style="margin-top:6px" onclick="saveWindows()">保存</button>'
       : '<p style="color:#aaa;font-size:0.9em">時間帯が1つも無いときは、いつでも引けます。</p>');
 }
+
+async function saveUnownedBoost() {
+  const value = Number(document.getElementById('unowned-boost').value);
+  const allowed = [1, 1.25, 1.5, 2];
+  const boost = allowed.includes(value) ? value : 1.5;
+  const msg = document.getElementById('unowned-boost-msg');
+  try {
+    await setDoc(GMETA(), { unownedBoost: boost }, { merge: true });
+    gmeta.unownedBoost = boost;
+    msg.style.color = '#81c784';
+    msg.textContent = boost === 1
+      ? '全キャラクターが同じ確率になるよう保存しました。'
+      : `未所持キャラクターを ${boost}倍 出やすくしました。`;
+  } catch (e) {
+    msg.style.color = '#ff6b6b';
+    msg.textContent = '保存できませんでした。もう一度お試しください。';
+  }
+}
+window.saveUnownedBoost = saveUnownedBoost;
 
 /* 先生が設定を確かめられるよう、今日が引ける日かどうかを表示する */
 function renderTodayStatus() {
@@ -2188,6 +2227,7 @@ async function importDataFromText() {
       chars: data.meta.chars || [],
       windows: data.meta.windows || [],
       alwaysOpen: !!data.meta.alwaysOpen,
+      unownedBoost: Number(data.meta.unownedBoost) || 1.5,
       teacherPin: data.meta.teacherPin || DEFAULT_TEACHER_PIN
     }, { merge: true });
     for (const s of data.students) {
@@ -2498,12 +2538,23 @@ let pendingDraw = null;   // { picks: [{char, owned, isNew}], n }
 /* times回ぶんの抽選。Firestoreには触らない純粋な処理。
    同じ10連の中でダブったときも「2枚目」と数えられるよう、
    引くたびに col を伸ばしながら判定する。 */
-function drawPicks(chars, collection, firstGotAt, times, nowMs) {
+function drawPicks(chars, collection, firstGotAt, times, nowMs, unownedBoost) {
   const col   = [...collection];
   const got   = Object.assign({}, firstGotAt);
   const picks = [];
+  const boost = Math.max(1, Number(unownedBoost) || 1);
   for (let i = 0; i < times; i++) {
-    const pick  = chars[Math.floor(Math.random() * chars.length)];
+    // 所持済みは重み1、未所持は先生設定の重みで抽選する。
+    // 被りも候補から外さないので、確率は上がるが確定にはならない。
+    const ownedIds = new Set(col.map(String));
+    const weights = chars.map(c => ownedIds.has(String(c.id)) ? 1 : boost);
+    const totalWeight = weights.reduce((a, b) => a + b, 0);
+    let ticket = Math.random() * totalWeight;
+    let pick = chars[chars.length - 1];
+    for (let j = 0; j < chars.length; j++) {
+      ticket -= weights[j];
+      if (ticket < 0) { pick = chars[j]; break; }
+    }
     const owned = col.filter(id => id === pick.id).length + 1;
     const isNew = owned === 1;   // はじめて手に入れたキャラか
     // はじめてのキャラだけ、手に入れた時刻を残す（「New!」表示に使う）
@@ -2540,7 +2591,9 @@ async function startGacha(n) {
       const cur  = normalizeStudent(currentNo, snap.data());
       if ((cur.gachaCount || 0) < times) return null;   // 回数が足りなければ何もしない
 
-      const res = drawPicks(chars, cur.collection, cur.firstGotAt, times, now.getTime());
+      const res = drawPicks(
+        chars, cur.collection, cur.firstGotAt, times, now.getTime(), gmeta.unownedBoost
+      );
       tx.set(ref, {
         gachaCount: cur.gachaCount - times,
         collection: res.col,
